@@ -2,7 +2,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const version = process.env.GITHUB_REF?.replace('refs/tags/v', '') || process.argv[2];
+const tagPrefix = 'refs/tags/v';
+const version = process.env.GITHUB_REF?.startsWith(tagPrefix)
+  ? process.env.GITHUB_REF.slice(tagPrefix.length)
+  : process.argv[2];
 if (!version) {
   console.error('Error: Version not provided');
   console.error('Usage: node prepare-packages.js 0.1.0');
