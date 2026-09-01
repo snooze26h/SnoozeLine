@@ -1,4 +1,4 @@
-use super::{Segment, SegmentData};
+use super::{sanitize_text, Segment, SegmentData};
 use crate::config::{InputData, ModelConfig, SegmentId};
 use std::collections::HashMap;
 
@@ -18,7 +18,9 @@ impl Segment for ModelSegment {
         metadata.insert("display_name".to_string(), input.model.display_name.clone());
 
         Some(SegmentData {
-            primary: self.format_model_name(&input.model.id, &input.model.display_name),
+            primary: sanitize_text(
+                &self.format_model_name(&input.model.id, &input.model.display_name),
+            ),
             secondary: String::new(),
             metadata,
         })

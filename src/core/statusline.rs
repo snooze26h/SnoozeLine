@@ -254,7 +254,7 @@ impl StatusLineGenerator {
             }
 
             // Apply background to the entire content and reset at the end
-            format!("{}{}\x1b[49m", bg_code, segment_content)
+            format!("{}{}\x1b[0m", bg_code, segment_content)
         } else {
             // No background color, use original logic
             let icon_colored = self.apply_color(&icon, config.colors.icon.as_ref());
@@ -463,7 +463,7 @@ pub fn collect_all_segments(
 
     for segment_config in &config.segments {
         // Skip disabled segments to avoid unnecessary API requests
-        if !segment_config.enabled {
+        if !segment_config.enabled || !segment_config.id.is_supported() {
             continue;
         }
 
@@ -505,10 +505,7 @@ pub fn collect_all_segments(
                 let segment = OutputStyleSegment::new();
                 segment.collect(input)
             }
-            crate::config::SegmentId::Update => {
-                let segment = UpdateSegment::new();
-                segment.collect(input)
-            }
+            _ => continue,
         };
 
         if let Some(data) = segment_data {
@@ -517,4 +514,30 @@ pub fn collect_all_segments(
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StatusLineGenerator;
+    use crate::config::{AnsiColor, Config};
+    use crate::core::segments::SegmentData;
+    use std::collections::HashMap;
+
+    #[test]
+    fn background_segments_end_with_a_full_ansi_reset() {
+        let mut config = Config::default();
+        let mut segment = config.segments[0].clone();
+        segment.colors.background = Some(AnsiColor::Color16 { c16: 4 });
+        config.segments = vec![segment.clone()];
+        let output = StatusLineGenerator::new(config).generate(vec![(
+            segment,
+            SegmentData {
+                primary: "value".to_string(),
+                secondary: String::new(),
+                metadata: HashMap::new(),
+            },
+        )]);
+
+        assert!(output.ends_with("\x1b[0m"));
+    }
 }

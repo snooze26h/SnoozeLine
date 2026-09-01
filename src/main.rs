@@ -1,20 +1,20 @@
-use ccometixline::cli::Cli;
-use ccometixline::config::{Config, InputData};
-use ccometixline::core::{collect_all_segments, StatusLineGenerator};
-use ccometixline::ui::{MainMenu, MenuResult};
+use snoozeline::cli::Cli;
+use snoozeline::config::{Config, InputData};
+use snoozeline::core::{collect_all_segments, StatusLineGenerator};
+use snoozeline::ui::{MainMenu, MenuResult};
 use std::io::{self, IsTerminal};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse_args();
 
     if cli.config {
-        ccometixline::ui::run_configurator()?;
+        snoozeline::ui::run_configurator()?;
         return Ok(());
     }
 
     // Handle Claude Code patcher
     if let Some(claude_path) = cli.patch {
-        use ccometixline::utils::ClaudeCodePatcher;
+        use snoozeline::utils::ClaudeCodePatcher;
 
         println!("🔧 Claude Code Context Warning Disabler");
         println!("Target file: {}", claude_path);
@@ -39,11 +39,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Load configuration
-    let mut config = Config::load().unwrap_or_else(|_| Config::default());
+    let mut config = Config::load().unwrap_or_else(|error| {
+        eprintln!("snoozeline: invalid config, using defaults: {}", error);
+        Config::default()
+    });
 
     // Apply theme override if provided
     if let Some(theme) = cli.theme {
-        config = ccometixline::ui::themes::ThemePresets::get_theme(&theme);
+        config = snoozeline::ui::themes::ThemePresets::get_theme(&theme);
     }
 
     // Check if stdin has data
@@ -51,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(result) = MainMenu::run()? {
             match result {
                 MenuResult::LaunchConfigurator => {
-                    ccometixline::ui::run_configurator()?;
+                    snoozeline::ui::run_configurator()?;
                 }
                 MenuResult::InitConfig | MenuResult::CheckConfig => {}
                 MenuResult::Exit => {}

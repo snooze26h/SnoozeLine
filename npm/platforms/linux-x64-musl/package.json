@@ -1,14 +1,11 @@
 {
-  "name": "@cometix/ccline-linux-x64-musl",
-  "version": "0.0.0",
-  "description": "Linux x64 static binary for CCometixLine (musl libc)",
-  "files": ["ccline"],
+  "name": "snoozeline-linux-x64-musl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private Linux x64 musl binary package for SnoozeLine",
+  "files": ["snoozeline"],
   "os": ["linux"],
   "cpu": ["x64"],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Haleclipse/CCometixLine"
-  },
-  "author": "Haleclipse",
-  "license": "MIT"
+  "author": "snooze26h",
+  "license": "UNLICENSED"
 }

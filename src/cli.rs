@@ -1,8 +1,8 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "ccline")]
-#[command(version, about = "High-performance Claude Code StatusLine")]
+#[command(name = "snoozeline")]
+#[command(version, about = "Reliable, customizable Claude Code status line")]
 pub struct Cli {
     /// Enter TUI configuration mode
     #[arg(short = 'c', long = "config")]

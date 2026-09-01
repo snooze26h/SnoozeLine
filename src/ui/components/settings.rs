@@ -26,6 +26,9 @@ impl SettingsComponent {
         selected_field: &FieldSelection,
     ) {
         if let Some(segment) = config.segments.get(selected_segment) {
+            if !segment.id.is_supported() {
+                return;
+            }
             let segment_name = match segment.id {
                 SegmentId::Model => "Model",
                 SegmentId::Directory => "Directory",
@@ -35,7 +38,7 @@ impl SettingsComponent {
                 SegmentId::Cost => "Cost",
                 SegmentId::Session => "Session",
                 SegmentId::OutputStyle => "Output Style",
-                SegmentId::Update => "Update",
+                _ => return,
             };
             let current_icon = match config.style.mode {
                 StyleMode::Plain => &segment.icon.plain,

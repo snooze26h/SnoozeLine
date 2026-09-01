@@ -8,5 +8,6 @@ pub mod theme_powerline_dark;
 pub mod theme_powerline_light;
 pub mod theme_powerline_rose_pine;
 pub mod theme_powerline_tokyo_night;
+pub mod theme_snooze26h;
 
 pub use presets::*;

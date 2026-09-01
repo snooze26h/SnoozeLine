@@ -1,7 +1,64 @@
-use super::{Segment, SegmentData};
+use super::{sanitize_text, Segment, SegmentData};
 use crate::config::{InputData, SegmentId};
 use std::collections::HashMap;
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
+
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_millis(500);
+const GIT_POLL_INTERVAL: Duration = Duration::from_millis(5);
+const MAX_GIT_STDOUT_BYTES: u64 = 1024 * 1024;
+
+fn run_command_with_timeout(
+    program: &str,
+    args: &[&str],
+    working_dir: &str,
+    timeout: Duration,
+) -> Option<Vec<u8>> {
+    let mut child = Command::new(program)
+        .args(args)
+        .current_dir(working_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let stdout = child.stdout.take()?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let mut output = Vec::new();
+        let result = stdout
+            .take(MAX_GIT_STDOUT_BYTES)
+            .read_to_end(&mut output)
+            .map(|_| output);
+        let _ = sender.send(result);
+    });
+
+    let deadline = Instant::now().checked_add(timeout)?;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                thread::sleep(remaining.min(GIT_POLL_INTERVAL));
+            }
+            Ok(None) | Err(_) => {
+                if child.kill().is_ok() {
+                    let _ = child.wait();
+                }
+                return None;
+            }
+        }
+    };
+
+    if !status.success() {
+        return None;
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    receiver.recv_timeout(remaining).ok()?.ok()
+}
 
 #[derive(Debug)]
 pub struct GitInfo {
@@ -47,7 +104,7 @@ impl GitSegment {
         let branch = self
             .get_branch(working_dir)
             .unwrap_or_else(|| "detached".to_string());
-        let status = self.get_status(working_dir);
+        let status = self.get_status(working_dir)?;
         let (ahead, behind) = self.get_ahead_behind(working_dir);
         let sha = if self.show_sha {
             self.get_sha(working_dir)
@@ -65,68 +122,78 @@ impl GitSegment {
     }
 
     fn is_git_repository(&self, working_dir: &str) -> bool {
-        Command::new("git")
-            .args(["--no-optional-locks", "rev-parse", "--git-dir"])
-            .current_dir(working_dir)
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
+        Self::run_git(
+            working_dir,
+            &["--no-optional-locks", "rev-parse", "--git-dir"],
+        )
+        .is_some()
     }
 
     fn get_branch(&self, working_dir: &str) -> Option<String> {
-        if let Ok(output) = Command::new("git")
-            .args(["--no-optional-locks", "branch", "--show-current"])
-            .current_dir(working_dir)
-            .output()
-        {
-            if output.status.success() {
-                let branch = String::from_utf8(output.stdout).ok()?.trim().to_string();
-                if !branch.is_empty() {
-                    return Some(branch);
-                }
+        if let Some(output) = Self::run_git(
+            working_dir,
+            &["--no-optional-locks", "branch", "--show-current"],
+        ) {
+            let branch = String::from_utf8(output).ok()?.trim().to_string();
+            if !branch.is_empty() {
+                return Some(branch);
             }
         }
 
-        if let Ok(output) = Command::new("git")
-            .args(["--no-optional-locks", "symbolic-ref", "--short", "HEAD"])
-            .current_dir(working_dir)
-            .output()
-        {
-            if output.status.success() {
-                let branch = String::from_utf8(output.stdout).ok()?.trim().to_string();
-                if !branch.is_empty() {
-                    return Some(branch);
-                }
+        if let Some(output) = Self::run_git(
+            working_dir,
+            &["--no-optional-locks", "symbolic-ref", "--short", "HEAD"],
+        ) {
+            let branch = String::from_utf8(output).ok()?.trim().to_string();
+            if !branch.is_empty() {
+                return Some(branch);
             }
         }
 
         None
     }
 
-    fn get_status(&self, working_dir: &str) -> GitStatus {
-        let output = Command::new("git")
-            .args(["--no-optional-locks", "status", "--porcelain"])
-            .current_dir(working_dir)
-            .output();
+    fn get_status(&self, working_dir: &str) -> Option<GitStatus> {
+        let output = Self::run_git(
+            working_dir,
+            &["--no-optional-locks", "status", "--porcelain=v1", "-z"],
+        )?;
+        Some(Self::parse_status(&output))
+    }
 
-        match output {
-            Ok(output) if output.status.success() => {
-                let status_text = String::from_utf8(output.stdout).unwrap_or_default();
+    fn parse_status(output: &[u8]) -> GitStatus {
+        let mut dirty = false;
+        let mut records = output.split(|byte| *byte == 0);
 
-                if status_text.trim().is_empty() {
-                    return GitStatus::Clean;
-                }
-
-                if status_text.contains("UU")
-                    || status_text.contains("AA")
-                    || status_text.contains("DD")
-                {
-                    GitStatus::Conflicts
-                } else {
-                    GitStatus::Dirty
-                }
+        while let Some(record) = records.next() {
+            if record.len() < 3 || record[2] != b' ' {
+                continue;
             }
-            _ => GitStatus::Clean,
+
+            let status = [record[0], record[1]];
+            dirty = true;
+            if matches!(
+                status,
+                [b'D', b'D']
+                    | [b'A', b'U']
+                    | [b'U', b'D']
+                    | [b'U', b'A']
+                    | [b'D', b'U']
+                    | [b'A', b'A']
+                    | [b'U', b'U']
+            ) {
+                return GitStatus::Conflicts;
+            }
+
+            if matches!(record[0], b'R' | b'C') || matches!(record[1], b'R' | b'C') {
+                records.next();
+            }
+        }
+
+        if dirty {
+            GitStatus::Dirty
+        } else {
+            GitStatus::Clean
         }
     }
 
@@ -137,43 +204,36 @@ impl GitSegment {
     }
 
     fn get_commit_count(&self, working_dir: &str, range: &str) -> u32 {
-        let output = Command::new("git")
-            .args(["--no-optional-locks", "rev-list", "--count", range])
-            .current_dir(working_dir)
-            .output();
-
-        match output {
-            Ok(output) if output.status.success() => String::from_utf8(output.stdout)
-                .ok()
-                .and_then(|s| s.trim().parse().ok())
-                .unwrap_or(0),
-            _ => 0,
-        }
+        Self::run_git(
+            working_dir,
+            &["--no-optional-locks", "rev-list", "--count", range],
+        )
+        .and_then(|output| String::from_utf8(output).ok())
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0)
     }
 
     fn get_sha(&self, working_dir: &str) -> Option<String> {
-        let output = Command::new("git")
-            .args(["--no-optional-locks", "rev-parse", "--short=7", "HEAD"])
-            .current_dir(working_dir)
-            .output()
-            .ok()?;
-
-        if output.status.success() {
-            let sha = String::from_utf8(output.stdout).ok()?.trim().to_string();
-            if sha.is_empty() {
-                None
-            } else {
-                Some(sha)
-            }
-        } else {
+        let output = Self::run_git(
+            working_dir,
+            &["--no-optional-locks", "rev-parse", "--short=7", "HEAD"],
+        )?;
+        let sha = String::from_utf8(output).ok()?.trim().to_string();
+        if sha.is_empty() {
             None
+        } else {
+            Some(sha)
         }
+    }
+
+    fn run_git(working_dir: &str, args: &[&str]) -> Option<Vec<u8>> {
+        run_command_with_timeout("git", args, working_dir, GIT_COMMAND_TIMEOUT)
     }
 }
 
 impl Segment for GitSegment {
     fn collect(&self, input: &InputData) -> Option<SegmentData> {
-        let git_info = self.get_git_info(&input.workspace.current_dir)?;
+        let git_info = self.get_git_info(input.current_dir())?;
 
         let mut metadata = HashMap::new();
         metadata.insert("branch".to_string(), git_info.branch.clone());
@@ -185,7 +245,7 @@ impl Segment for GitSegment {
             metadata.insert("sha".to_string(), sha.clone());
         }
 
-        let primary = git_info.branch;
+        let primary = sanitize_text(&git_info.branch);
         let mut status_parts = Vec::new();
 
         match git_info.status {
@@ -214,5 +274,50 @@ impl Segment for GitSegment {
 
     fn id(&self) -> SegmentId {
         SegmentId::Git
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{run_command_with_timeout, GitSegment, GitStatus};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn recognizes_every_unmerged_status() {
+        for status in ["DD", "AU", "UD", "UA", "DU", "AA", "UU"] {
+            let output = format!("{} conflict.txt\0", status);
+            assert_eq!(
+                GitSegment::parse_status(output.as_bytes()),
+                GitStatus::Conflicts,
+                "status {status}"
+            );
+        }
+    }
+
+    #[test]
+    fn filenames_do_not_trigger_false_conflicts() {
+        assert_eq!(
+            GitSegment::parse_status(b" M notes-UU-AA-DD.txt\0"),
+            GitStatus::Dirty
+        );
+        assert_eq!(GitSegment::parse_status(b""), GitStatus::Clean);
+    }
+
+    #[test]
+    fn skips_the_second_path_in_rename_records() {
+        assert_eq!(
+            GitSegment::parse_status(b"R  new.txt\0UU old-looking-name.txt\0"),
+            GitStatus::Dirty
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_command_timeout_is_bounded() {
+        let started = Instant::now();
+        let output = run_command_with_timeout("/bin/sleep", &["2"], ".", Duration::from_millis(30));
+
+        assert!(output.is_none());
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 }

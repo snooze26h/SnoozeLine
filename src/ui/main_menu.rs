@@ -117,7 +117,7 @@ impl MainMenu {
             (" Initialize Config", "Create default configuration"),
             (" Check Configuration", "Validate configuration file"),
             (" About", "Show application information"),
-            (" Exit", "Exit CCometixLine"),
+            (" Exit", "Exit SnoozeLine"),
         ]
     }
 
@@ -204,7 +204,7 @@ impl MainMenu {
         let header_text = Text::from(vec![
             Line::from(vec![
                 Span::styled(
-                    "CCometixLine",
+                    "SnoozeLine",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
@@ -343,7 +343,7 @@ impl MainMenu {
             Line::from(""),
             Line::from(vec![
                 Span::styled(
-                    "CCometixLine ",
+                    "SnoozeLine ",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
@@ -379,7 +379,7 @@ impl MainMenu {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("About CCometixLine")
+                    .title("About SnoozeLine")
                     .title_style(
                         Style::default()
                             .fg(Color::Cyan)

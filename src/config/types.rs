@@ -75,6 +75,18 @@ pub enum SegmentId {
     Update,
 }
 
+impl SegmentId {
+    pub(crate) fn is_supported(self) -> bool {
+        !matches!(self, Self::Update)
+    }
+}
+
+impl Config {
+    pub(crate) fn remove_unsupported_segments(&mut self) {
+        self.segments.retain(|segment| segment.id.is_supported());
+    }
+}
+
 // Legacy compatibility structure
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SegmentsConfig {
@@ -85,14 +97,41 @@ pub struct SegmentsConfig {
 }
 
 // Data structures compatible with existing main.rs
-#[derive(Deserialize)]
+#[derive(Debug, Default)]
 pub struct Model {
     pub id: String,
     pub display_name: String,
 }
 
 #[derive(Deserialize)]
+#[serde(untagged)]
+enum ModelInput {
+    Object {
+        id: String,
+        #[serde(default)]
+        display_name: String,
+    },
+    String(String),
+}
+
+impl<'de> Deserialize<'de> for Model {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(match ModelInput::deserialize(deserializer)? {
+            ModelInput::Object { id, display_name } => Self { id, display_name },
+            ModelInput::String(id) => Self {
+                display_name: id.clone(),
+                id,
+            },
+        })
+    }
+}
+
+#[derive(Deserialize, Default)]
 pub struct Workspace {
+    #[serde(default)]
     pub current_dir: String,
 }
 
@@ -110,13 +149,119 @@ pub struct OutputStyle {
     pub name: String,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct CurrentContextUsage {
+    #[serde(default)]
+    pub input_tokens: Option<u64>,
+    #[serde(default)]
+    pub output_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<u64>,
+}
+
+impl CurrentContextUsage {
+    pub fn input_tokens(&self) -> u64 {
+        self.input_tokens
+            .unwrap_or(0)
+            .saturating_add(self.cache_creation_input_tokens.unwrap_or(0))
+            .saturating_add(self.cache_read_input_tokens.unwrap_or(0))
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ContextWindow {
+    #[serde(default)]
+    pub total_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub total_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub context_window_size: Option<u64>,
+    #[serde(default)]
+    pub used_percentage: Option<f64>,
+    #[serde(default)]
+    pub remaining_percentage: Option<f64>,
+    #[serde(default)]
+    pub current_usage: Option<CurrentContextUsage>,
+}
+
+impl ContextWindow {
+    pub fn current_input_tokens(&self) -> Option<u64> {
+        self.current_usage
+            .as_ref()
+            .map(CurrentContextUsage::input_tokens)
+    }
+
+    pub fn current_percentage(&self) -> Option<f64> {
+        self.used_percentage
+            .filter(|value| value.is_finite())
+            .map(|value| value.clamp(0.0, 100.0))
+            .or_else(|| {
+                self.remaining_percentage
+                    .filter(|value| value.is_finite())
+                    .map(|value| 100.0 - value.clamp(0.0, 100.0))
+            })
+            .or_else(|| {
+                let limit = self.context_window_size?;
+                if limit == 0 {
+                    return None;
+                }
+                self.current_input_tokens()
+                    .map(|tokens| ((tokens as f64 / limit as f64) * 100.0).clamp(0.0, 100.0))
+            })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RateLimitWindow {
+    #[serde(default)]
+    pub used_percentage: Option<f64>,
+    #[serde(default)]
+    pub resets_at: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct RateLimits {
+    #[serde(default)]
+    pub five_hour: Option<RateLimitWindow>,
+    #[serde(default)]
+    pub seven_day: Option<RateLimitWindow>,
+}
+
 #[derive(Deserialize)]
 pub struct InputData {
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
     pub model: Model,
+    #[serde(default)]
     pub workspace: Workspace,
+    #[serde(default)]
     pub transcript_path: String,
+    #[serde(default)]
     pub cost: Option<Cost>,
+    #[serde(default)]
     pub output_style: Option<OutputStyle>,
+    #[serde(default)]
+    pub context_window: Option<ContextWindow>,
+    #[serde(default)]
+    pub rate_limits: Option<RateLimits>,
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
+impl InputData {
+    pub fn current_dir(&self) -> &str {
+        if !self.workspace.current_dir.is_empty() {
+            &self.workspace.current_dir
+        } else {
+            self.cwd
+                .as_deref()
+                .filter(|path| !path.is_empty())
+                .unwrap_or(".")
+        }
+    }
 }
 
 // OpenAI-style nested token details
@@ -197,13 +342,11 @@ pub struct NormalizedUsage {
 
 impl NormalizedUsage {
     /// Get tokens that count toward context window
-    /// This includes all tokens that consume context window space
-    /// Output tokens from this turn will become input tokens in the next turn
+    /// Claude Code's context percentage is input-only.
     pub fn context_tokens(&self) -> u32 {
         self.input_tokens
-            + self.cache_creation_input_tokens
-            + self.cache_read_input_tokens
-            + self.output_tokens
+            .saturating_add(self.cache_creation_input_tokens)
+            .saturating_add(self.cache_read_input_tokens)
     }
 
     /// Get total tokens for cost calculation
@@ -213,9 +356,9 @@ impl NormalizedUsage {
             self.total_tokens
         } else {
             self.input_tokens
-                + self.output_tokens
-                + self.cache_creation_input_tokens
-                + self.cache_read_input_tokens
+                .saturating_add(self.output_tokens)
+                .saturating_add(self.cache_creation_input_tokens)
+                .saturating_add(self.cache_read_input_tokens)
         }
     }
 
@@ -376,7 +519,10 @@ impl RawUsage {
             sources.push("total_tokens_direct".to_string());
             total
         } else if input > 0 || output > 0 || cache_read > 0 || cache_creation > 0 {
-            let calculated = input + output + cache_read + cache_creation;
+            let calculated = input
+                .saturating_add(output)
+                .saturating_add(cache_read)
+                .saturating_add(cache_creation);
             sources.push("total_from_components".to_string());
             calculated
         } else {
@@ -401,6 +547,8 @@ pub type Usage = RawUsage;
 #[derive(Deserialize)]
 pub struct Message {
     pub usage: Option<Usage>,
+    #[serde(default)]
+    pub stop_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -413,4 +561,83 @@ pub struct TranscriptEntry {
     #[serde(rename = "parentUuid")]
     pub parent_uuid: Option<String>,
     pub summary: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_accepts_object_and_string_inputs() {
+        let object: Model =
+            serde_json::from_str(r#"{"id":"claude-opus-5","display_name":"Opus 5"}"#).unwrap();
+        let string: Model = serde_json::from_str(r#""claude-opus-5""#).unwrap();
+
+        assert_eq!(object.id, "claude-opus-5");
+        assert_eq!(object.display_name, "Opus 5");
+        assert_eq!(string.id, "claude-opus-5");
+        assert_eq!(string.display_name, "claude-opus-5");
+    }
+
+    #[test]
+    fn native_context_uses_input_tokens_only() {
+        let context = ContextWindow {
+            context_window_size: Some(1_000_000),
+            used_percentage: None,
+            current_usage: Some(CurrentContextUsage {
+                input_tokens: Some(2),
+                output_tokens: Some(2_061),
+                cache_creation_input_tokens: Some(609),
+                cache_read_input_tokens: Some(874_001),
+            }),
+            ..Default::default()
+        };
+
+        assert_eq!(context.current_input_tokens(), Some(874_612));
+        let percentage = context.current_percentage().unwrap();
+        assert!((percentage - 87.4612).abs() < 1e-9);
+    }
+
+    #[test]
+    fn native_context_uses_remaining_percentage_as_fallback() {
+        let context = ContextWindow {
+            remaining_percentage: Some(37.5),
+            ..Default::default()
+        };
+
+        assert_eq!(context.current_percentage(), Some(62.5));
+    }
+
+    #[test]
+    fn native_context_percentage_never_exceeds_the_display_range() {
+        let explicit = ContextWindow {
+            used_percentage: Some(345.0),
+            ..Default::default()
+        };
+        let derived = ContextWindow {
+            context_window_size: Some(200_000),
+            current_usage: Some(CurrentContextUsage {
+                input_tokens: Some(250_000),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        assert_eq!(explicit.current_percentage(), Some(100.0));
+        assert_eq!(derived.current_percentage(), Some(100.0));
+    }
+
+    #[test]
+    fn transcript_context_excludes_output_and_saturates() {
+        let usage = NormalizedUsage {
+            input_tokens: u32::MAX,
+            output_tokens: 100,
+            cache_creation_input_tokens: 100,
+            cache_read_input_tokens: 100,
+            ..Default::default()
+        };
+
+        assert_eq!(usage.context_tokens(), u32::MAX);
+        assert_eq!(usage.total_for_cost(), u32::MAX);
+    }
 }

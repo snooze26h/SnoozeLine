@@ -1,4 +1,4 @@
-# git-cliff configuration for CCometixLine
+# git-cliff configuration for SnoozeLine
 # https://git-cliff.org/docs/configuration
 
 [changelog]
@@ -12,10 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 """
 body = """
-{%- macro remote_url() -%}
-  https://github.com/Haleclipse/CCometixLine
-{%- endmacro -%}
-
 {% if version -%}
 ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
 {% else -%}
@@ -46,9 +42,7 @@ postprocessors = []
 conventional_commits = true
 filter_unconventional = true
 split_commits = false
-commit_preprocessors = [
-    { pattern = '\(#([0-9]+)\)', replace = "([#${1}](https://github.com/Haleclipse/CCometixLine/pull/${1}))" },
-]
+commit_preprocessors = []
 commit_parsers = [
     { message = "^feat", group = "Added" },
     { message = "^fix", group = "Fixed" },

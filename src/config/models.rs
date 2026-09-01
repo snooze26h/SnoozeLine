@@ -102,6 +102,8 @@ impl ModelConfig {
                 BuiltinModelFamily::new("sonnet", "Sonnet", 200_000),
                 BuiltinModelFamily::new("opus", "Opus", 200_000),
                 BuiltinModelFamily::new("haiku", "Haiku", 200_000),
+                BuiltinModelFamily::new("fable", "Fable", 1_000_000),
+                BuiltinModelFamily::new("mythos", "Mythos", 1_000_000),
             ]
         })
     }
@@ -122,6 +124,24 @@ impl ModelConfig {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
         let content = fs::read_to_string(path)?;
         let config: ModelConfig = toml::from_str(&content)?;
+        if config
+            .model_entries
+            .iter()
+            .any(|entry| entry.pattern.trim().is_empty() || entry.context_limit == 0)
+        {
+            return Err(
+                "Model patterns must be non-empty and context limits must be positive".into(),
+            );
+        }
+        if config
+            .context_modifiers
+            .iter()
+            .any(|modifier| modifier.pattern.trim().is_empty() || modifier.context_limit == 0)
+        {
+            return Err(
+                "Context modifier patterns must be non-empty and limits must be positive".into(),
+            );
+        }
         Ok(config)
     }
 
@@ -130,34 +150,41 @@ impl ModelConfig {
         let mut model_config = Self::default();
 
         // First, try to create default models.toml if it doesn't exist
-        if let Some(home_dir) = dirs::home_dir() {
-            let user_models_path = home_dir.join(".claude").join("ccline").join("models.toml");
-            if !user_models_path.exists() {
-                let _ = Self::create_default_file(&user_models_path);
-            }
+        let user_models_path = super::paths::models_file();
+        if !user_models_path.exists() {
+            let _ = Self::create_default_file(&user_models_path);
         }
 
         // Try loading from user config directory first, then local
         let config_paths = [
-            dirs::home_dir().map(|d| d.join(".claude").join("ccline").join("models.toml")),
+            Some(user_models_path),
             Some(Path::new("models.toml").to_path_buf()),
         ];
 
         for path in config_paths.iter().flatten() {
             if path.exists() {
-                if let Ok(config) = Self::load_from_file(path) {
-                    // Prepend external models to built-in ones for priority
-                    let mut merged_entries = config.model_entries;
-                    merged_entries.extend(model_config.model_entries);
-                    model_config.model_entries = merged_entries;
+                let config = match Self::load_from_file(path) {
+                    Ok(config) => config,
+                    Err(error) => {
+                        eprintln!(
+                            "snoozeline: invalid model config at {}: {}",
+                            path.display(),
+                            error
+                        );
+                        return model_config;
+                    }
+                };
+                // Prepend external models to built-in ones for priority
+                let mut merged_entries = config.model_entries;
+                merged_entries.extend(model_config.model_entries);
+                model_config.model_entries = merged_entries;
 
-                    // Prepend external modifiers to built-in ones for priority
-                    let mut merged_modifiers = config.context_modifiers;
-                    merged_modifiers.extend(model_config.context_modifiers);
-                    model_config.context_modifiers = merged_modifiers;
+                // Prepend external modifiers to built-in ones for priority
+                let mut merged_modifiers = config.context_modifiers;
+                merged_modifiers.extend(model_config.context_modifiers);
+                model_config.context_modifiers = merged_modifiers;
 
-                    return model_config;
-                }
+                return model_config;
             }
         }
 
@@ -253,17 +280,18 @@ impl ModelConfig {
     /// Create default model configuration file with minimal template
     pub fn create_default_file<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn std::error::Error>> {
         // Add comments and examples to the template
-        let template_content = "# CCometixLine Model Configuration\n\
+        let template_content = "# SnoozeLine Model Configuration\n\
              # This file defines model display names and context limits for different LLM models\n\
-             # File location: ~/.claude/ccline/models.toml\n\
+             # File location: ~/.claude/snoozeline/models.toml\n\
              #\n\
-             # Claude models are automatically recognized (Sonnet, Opus, Haiku) with\n\
+             # Claude models are automatically recognized (Sonnet, Opus, Haiku, Fable, Mythos) with\n\
              # version extraction. You only need to add entries here for overrides or\n\
              # third-party models.\n\
              \n\
              # Model configurations (simple substring matching)\n\
              # Each [[models]] section defines a model pattern and its properties\n\
              # These take priority over built-in Claude model recognition\n\
+             # Avoid broad version prefixes: they also match later minor versions\n\
              \n\
              # Example:\n\
              # [[models]]\n\
@@ -296,7 +324,7 @@ impl Default for ModelConfig {
     fn default() -> Self {
         Self {
             // Only third-party models need explicit entries.
-            // Claude models (Sonnet, Opus, Haiku) are handled by built-in regex families.
+            // Claude models (Sonnet, Opus, Haiku, Fable, Mythos) use built-in regex families.
             model_entries: vec![
                 ModelEntry {
                     pattern: "glm-4.5".to_string(),
@@ -325,5 +353,48 @@ impl Default for ModelConfig {
                 context_limit: 1_000_000,
             }],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_fable_versions_are_distinct() {
+        let config = ModelConfig::default();
+        let cases = [
+            ("claude-fable-5", "Fable 5"),
+            ("claude-fable-5-1", "Fable 5.1"),
+            ("claude-fable-5-1-20260901", "Fable 5.1"),
+            ("claude-fable-5-1[1m]", "Fable 5.1 1M"),
+        ];
+
+        for (model_id, expected_name) in cases {
+            assert_eq!(
+                config.get_display_name(model_id).as_deref(),
+                Some(expected_name)
+            );
+            assert_eq!(config.get_context_limit(model_id), 1_000_000);
+        }
+    }
+
+    #[test]
+    fn user_model_entries_keep_substring_priority() {
+        let mut config = ModelConfig::default();
+        config.model_entries.insert(
+            0,
+            ModelEntry {
+                pattern: "claude-fable-5".to_string(),
+                display_name: "Pinned Fable".to_string(),
+                context_limit: 500_000,
+            },
+        );
+
+        assert_eq!(
+            config.get_display_name("claude-fable-5-1").as_deref(),
+            Some("Pinned Fable")
+        );
+        assert_eq!(config.get_context_limit("claude-fable-5-1"), 500_000);
     }
 }

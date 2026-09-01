@@ -1,42 +1,12 @@
-# @cometix/ccline
+# SnoozeLine npm packaging
 
-CCometixLine - High-performance Claude Code StatusLine tool
+This directory contains private, local-only packaging scaffolding for SnoozeLine.
+None of these packages are configured for publication.
 
-## Installation
+Set `SNOOZELINE_SKIP_POSTINSTALL=1` to prevent a local npm install from copying
+a binary into `~/.claude/snoozeline`.
 
-```bash
-npm install -g @cometix/ccline
-```
-
-## Features
-
-- 🚀 **Fast**: Written in Rust for maximum performance
-- 🌍 **Cross-platform**: Works on Windows, macOS, and Linux
-- 📦 **Easy installation**: One command via npm
-- 🔄 **Auto-update**: Built-in update notifications
-- 🎨 **Beautiful**: Nerd Font icons and colors
-
-## Usage
-
-After installation, ccline is automatically configured for Claude Code at `~/.claude/ccline/ccline`.
-
-You can also use it directly:
-
-```bash
-ccline --help
-ccline --version
-```
-
-## For Users in China
-
-Use npm mirror for faster installation:
-
-```bash
-npm install -g @cometix/ccline --registry https://registry.npmmirror.com
-```
-
-## More Information
-
-- GitHub: https://github.com/Haleclipse/CCometixLine
-- Issues: https://github.com/Haleclipse/CCometixLine/issues
-- License: MIT
+The `snoozeline` wrapper first checks
+`~/.claude/snoozeline/snoozeline` (`snoozeline.exe` on Windows), then looks for
+the matching private platform package. It never falls back to a legacy
+installation path.

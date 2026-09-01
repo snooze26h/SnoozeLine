@@ -205,8 +205,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "ccometixline"
-version = "1.1.2"
+name = "snoozeline"
+version = "0.1.0"
 dependencies = [
  "ansi-to-tui",
  "ansi_term",
@@ -216,7 +216,6 @@ dependencies = [
  "dirs",
  "ratatui",
  "regex",
- "semver",
  "serde",
  "serde_json",
  "toml",

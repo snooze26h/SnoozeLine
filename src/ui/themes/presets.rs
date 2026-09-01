@@ -5,7 +5,7 @@ use crate::config::{Config, StyleConfig, StyleMode};
 // Import all theme modules
 use super::{
     theme_cometix, theme_default, theme_gruvbox, theme_minimal, theme_nord, theme_powerline_dark,
-    theme_powerline_light, theme_powerline_rose_pine, theme_powerline_tokyo_night,
+    theme_powerline_light, theme_powerline_rose_pine, theme_powerline_tokyo_night, theme_snooze26h,
 };
 
 pub struct ThemePresets;
@@ -19,6 +19,7 @@ impl ThemePresets {
 
         // Fallback to built-in themes
         match theme_name {
+            "snooze26h" => Self::get_snooze26h(),
             "cometix" => Self::get_cometix(),
             "default" => Self::get_default(),
             "gruvbox" => Self::get_gruvbox(),
@@ -42,21 +43,23 @@ impl ThemePresets {
         }
 
         let content = std::fs::read_to_string(&theme_path)?;
-        let mut config: Config = toml::from_str(&content)?;
+        Self::parse_theme(theme_name, &content)
+    }
+
+    fn parse_theme(theme_name: &str, content: &str) -> Result<Config, Box<dyn std::error::Error>> {
+        let mut config: Config = toml::from_str(content)?;
 
         // Ensure the theme field matches the requested theme
         config.theme = theme_name.to_string();
+        config.remove_unsupported_segments();
+        config.check()?;
 
         Ok(config)
     }
 
-    /// Get the themes directory path (~/.claude/ccline/themes/)
+    /// Get the themes directory path.
     fn get_themes_path() -> std::path::PathBuf {
-        if let Some(home) = dirs::home_dir() {
-            home.join(".claude").join("ccline").join("themes")
-        } else {
-            std::path::PathBuf::from(".claude/ccline/themes")
-        }
+        crate::config::paths::themes_dir()
     }
 
     /// Save current config as a new theme
@@ -80,6 +83,7 @@ impl ThemePresets {
     /// List all available themes (built-in + custom)
     pub fn list_available_themes() -> Vec<String> {
         let mut themes = vec![
+            "snooze26h".to_string(),
             "cometix".to_string(),
             "default".to_string(),
             "minimal".to_string(),
@@ -110,6 +114,7 @@ impl ThemePresets {
 
     pub fn get_available_themes() -> Vec<(&'static str, &'static str)> {
         vec![
+            ("snooze26h", "SnoozeLine default theme"),
             ("cometix", "Cometix theme"),
             ("default", "Default theme with emoji icons"),
             ("minimal", "Minimal theme with reduced colors"),
@@ -120,6 +125,26 @@ impl ThemePresets {
             ("powerline-rose-pine", "Rose Pine powerline theme"),
             ("powerline-tokyo-night", "Tokyo Night powerline theme"),
         ]
+    }
+
+    pub fn get_snooze26h() -> Config {
+        Config {
+            style: StyleConfig {
+                mode: StyleMode::NerdFont,
+                separator: " | ".to_string(),
+            },
+            segments: vec![
+                theme_snooze26h::model_segment(),
+                theme_snooze26h::directory_segment(),
+                theme_snooze26h::context_window_segment(),
+                theme_snooze26h::usage_segment(),
+                theme_snooze26h::git_segment(),
+                theme_snooze26h::cost_segment(),
+                theme_snooze26h::session_segment(),
+                theme_snooze26h::output_style_segment(),
+            ],
+            theme: "snooze26h".to_string(),
+        }
     }
 
     pub fn get_cometix() -> Config {
@@ -300,5 +325,36 @@ impl ThemePresets {
             ],
             theme: "powerline-tokyo-night".to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ThemePresets;
+    use crate::config::{AnsiColor, Config, SegmentId};
+
+    #[test]
+    fn file_theme_validation_rejects_invalid_colors() {
+        let mut config = Config::default();
+        config.segments[0].colors.icon = Some(AnsiColor::Color16 { c16: 16 });
+        let content = toml::to_string(&config).unwrap();
+
+        assert!(ThemePresets::parse_theme("invalid", &content).is_err());
+    }
+
+    #[test]
+    fn legacy_update_segment_deserializes_but_is_removed() {
+        let mut config = Config::default();
+        let mut legacy_update = config.segments[0].clone();
+        legacy_update.id = SegmentId::Update;
+        config.segments.push(legacy_update);
+        let content = toml::to_string(&config).unwrap();
+
+        let parsed = ThemePresets::parse_theme("legacy", &content).unwrap();
+
+        assert!(parsed
+            .segments
+            .iter()
+            .all(|segment| segment.id.is_supported()));
     }
 }

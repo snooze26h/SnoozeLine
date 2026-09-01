@@ -3,7 +3,7 @@ use crate::config::{InputData, ModelConfig, SegmentId, TranscriptEntry};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Default)]
 pub struct ContextWindowSegment;
@@ -13,63 +13,76 @@ impl ContextWindowSegment {
         Self
     }
 
-    /// Get context limit for the specified model
-    fn get_context_limit_for_model(model_id: &str) -> u32 {
+    fn get_context_limit_for_model(model_id: &str) -> u64 {
         let model_config = ModelConfig::load();
-        model_config.get_context_limit(model_id)
+        u64::from(model_config.get_context_limit(model_id))
+    }
+
+    fn format_percentage(percentage: f64) -> String {
+        if percentage.fract() == 0.0 {
+            format!("{:.0}%", percentage)
+        } else {
+            format!("{:.1}%", percentage)
+        }
+    }
+
+    fn format_tokens(tokens: u64) -> String {
+        if tokens >= 1000 {
+            let thousands = tokens as f64 / 1000.0;
+            if thousands.fract() == 0.0 {
+                format!("{}k", thousands as u64)
+            } else {
+                format!("{:.1}k", thousands)
+            }
+        } else {
+            tokens.to_string()
+        }
     }
 }
 
 impl Segment for ContextWindowSegment {
     fn collect(&self, input: &InputData) -> Option<SegmentData> {
-        // Dynamically determine context limit based on current model ID
-        let context_limit = Self::get_context_limit_for_model(&input.model.id);
-
-        let context_used_token_opt = parse_transcript_usage(&input.transcript_path);
-
-        let (percentage_display, tokens_display) = match context_used_token_opt {
-            Some(context_used_token) => {
-                let context_used_rate = (context_used_token as f64 / context_limit as f64) * 100.0;
-
-                let percentage = if context_used_rate.fract() == 0.0 {
-                    format!("{:.0}%", context_used_rate)
-                } else {
-                    format!("{:.1}%", context_used_rate)
-                };
-
-                let tokens = if context_used_token >= 1000 {
-                    let k_value = context_used_token as f64 / 1000.0;
-                    if k_value.fract() == 0.0 {
-                        format!("{}k", k_value as u32)
-                    } else {
-                        format!("{:.1}k", k_value)
-                    }
-                } else {
-                    context_used_token.to_string()
-                };
-
-                (percentage, tokens)
+        let (tokens, percentage, context_limit, source) = match input.context_window.as_ref() {
+            Some(context_window) => {
+                let limit = context_window
+                    .context_window_size
+                    .filter(|limit| *limit > 0)
+                    .unwrap_or_else(|| Self::get_context_limit_for_model(&input.model.id));
+                (
+                    context_window.current_input_tokens(),
+                    context_window.current_percentage(),
+                    limit,
+                    "native",
+                )
             }
             None => {
-                // No usage data available
-                ("-".to_string(), "-".to_string())
+                let limit = Self::get_context_limit_for_model(&input.model.id);
+                let tokens = parse_transcript_usage(&input.transcript_path).map(u64::from);
+                let percentage =
+                    tokens.map(|value| ((value as f64 / limit as f64) * 100.0).clamp(0.0, 100.0));
+                (tokens, percentage, limit, "transcript")
             }
         };
 
+        let percentage_display = percentage
+            .map(Self::format_percentage)
+            .unwrap_or_else(|| "-".to_string());
+        let tokens_display = tokens
+            .map(Self::format_tokens)
+            .unwrap_or_else(|| "-".to_string());
+
         let mut metadata = HashMap::new();
-        match context_used_token_opt {
-            Some(context_used_token) => {
-                let context_used_rate = (context_used_token as f64 / context_limit as f64) * 100.0;
-                metadata.insert("tokens".to_string(), context_used_token.to_string());
-                metadata.insert("percentage".to_string(), context_used_rate.to_string());
-            }
-            None => {
-                metadata.insert("tokens".to_string(), "-".to_string());
-                metadata.insert("percentage".to_string(), "-".to_string());
-            }
-        }
+        metadata.insert(
+            "tokens".to_string(),
+            tokens.map_or_else(|| "-".to_string(), |value| value.to_string()),
+        );
+        metadata.insert(
+            "percentage".to_string(),
+            percentage.map_or_else(|| "-".to_string(), |value| value.to_string()),
+        );
         metadata.insert("limit".to_string(), context_limit.to_string());
         metadata.insert("model".to_string(), input.model.id.clone());
+        metadata.insert("source".to_string(), source.to_string());
 
         Some(SegmentData {
             primary: format!("{} · {} tokens", percentage_display, tokens_display),
@@ -84,21 +97,7 @@ impl Segment for ContextWindowSegment {
 }
 
 fn parse_transcript_usage<P: AsRef<Path>>(transcript_path: P) -> Option<u32> {
-    let path = transcript_path.as_ref();
-
-    // Try to parse from current transcript file
-    if let Some(usage) = try_parse_transcript_file(path) {
-        return Some(usage);
-    }
-
-    // If file doesn't exist, try to find usage from project history
-    if !path.exists() {
-        if let Some(usage) = try_find_usage_from_project_history(path) {
-            return Some(usage);
-        }
-    }
-
-    None
+    try_parse_transcript_file(transcript_path.as_ref())
 }
 
 fn try_parse_transcript_file(path: &Path) -> Option<u32> {
@@ -135,9 +134,11 @@ fn try_parse_transcript_file(path: &Path) -> Option<u32> {
         if let Ok(entry) = serde_json::from_str::<TranscriptEntry>(line) {
             if entry.r#type.as_deref() == Some("assistant") {
                 if let Some(message) = &entry.message {
-                    if let Some(raw_usage) = &message.usage {
-                        let normalized = raw_usage.clone().normalize();
-                        return Some(normalized.display_tokens());
+                    if message.stop_reason.is_some() {
+                        if let Some(raw_usage) = &message.usage {
+                            let normalized = raw_usage.clone().normalize();
+                            return Some(normalized.display_tokens());
+                        }
                     }
                 }
             }
@@ -189,9 +190,11 @@ fn search_uuid_in_file(path: &Path, target_uuid: &str) -> Option<u32> {
                     if entry.r#type.as_deref() == Some("assistant") {
                         // Direct assistant message with usage
                         if let Some(message) = &entry.message {
-                            if let Some(raw_usage) = &message.usage {
-                                let normalized = raw_usage.clone().normalize();
-                                return Some(normalized.display_tokens());
+                            if message.stop_reason.is_some() {
+                                if let Some(raw_usage) = &message.usage {
+                                    let normalized = raw_usage.clone().normalize();
+                                    return Some(normalized.display_tokens());
+                                }
                             }
                         }
                     } else if entry.r#type.as_deref() == Some("user") {
@@ -220,9 +223,11 @@ fn find_assistant_message_by_uuid(lines: &[String], target_uuid: &str) -> Option
             if let Some(uuid) = &entry.uuid {
                 if uuid == target_uuid && entry.r#type.as_deref() == Some("assistant") {
                     if let Some(message) = &entry.message {
-                        if let Some(raw_usage) = &message.usage {
-                            let normalized = raw_usage.clone().normalize();
-                            return Some(normalized.display_tokens());
+                        if message.stop_reason.is_some() {
+                            if let Some(raw_usage) = &message.usage {
+                                let normalized = raw_usage.clone().normalize();
+                                return Some(normalized.display_tokens());
+                            }
                         }
                     }
                 }
@@ -233,40 +238,73 @@ fn find_assistant_message_by_uuid(lines: &[String], target_uuid: &str) -> Option
     None
 }
 
-fn try_find_usage_from_project_history(transcript_path: &Path) -> Option<u32> {
-    let project_dir = transcript_path.parent()?;
+#[cfg(test)]
+mod tests {
+    use super::ContextWindowSegment;
+    use crate::config::{ContextWindow, CurrentContextUsage, InputData, Model, Workspace};
+    use crate::core::segments::Segment;
 
-    // Find the most recent session file in the project directory
-    let mut session_files: Vec<PathBuf> = Vec::new();
-    let entries = fs::read_dir(project_dir).ok()?;
-
-    for entry in entries {
-        let entry = entry.ok()?;
-        let path = entry.path();
-
-        if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
-            session_files.push(path);
+    fn input(transcript_path: String, context_window: Option<ContextWindow>) -> InputData {
+        InputData {
+            cwd: None,
+            model: Model {
+                id: "claude-opus-5".to_string(),
+                display_name: "Opus 5".to_string(),
+            },
+            workspace: Workspace {
+                current_dir: "/tmp/project".to_string(),
+            },
+            transcript_path,
+            cost: None,
+            output_style: None,
+            context_window,
+            rate_limits: None,
+            version: None,
         }
     }
 
-    if session_files.is_empty() {
-        return None;
+    #[test]
+    fn native_context_wins_and_excludes_output() {
+        let context = ContextWindow {
+            context_window_size: Some(1_000_000),
+            used_percentage: Some(25.0),
+            current_usage: Some(CurrentContextUsage {
+                input_tokens: Some(1_000),
+                output_tokens: Some(99_000),
+                cache_creation_input_tokens: Some(2_000),
+                cache_read_input_tokens: Some(247_000),
+            }),
+            ..Default::default()
+        };
+        let data = ContextWindowSegment::new()
+            .collect(&input("/missing".to_string(), Some(context)))
+            .unwrap();
+
+        assert_eq!(data.primary, "25% · 250k tokens");
+        assert_eq!(data.metadata.get("source").unwrap(), "native");
     }
 
-    // Sort by modification time (most recent first)
-    session_files.sort_by_key(|path| {
-        fs::metadata(path)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH)
-    });
-    session_files.reverse();
+    #[test]
+    fn native_null_does_not_reuse_transcript_data() {
+        let path = std::env::temp_dir().join(format!(
+            "snoozeline-native-null-{}.jsonl",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"type":"assistant","message":{"stop_reason":"end_turn","usage":{"input_tokens":2,"cache_creation_input_tokens":609,"cache_read_input_tokens":874001,"output_tokens":2061}}}"#,
+        )
+        .unwrap();
+        let context = ContextWindow {
+            context_window_size: Some(1_000_000),
+            ..Default::default()
+        };
+        let data = ContextWindowSegment::new()
+            .collect(&input(path.to_string_lossy().into_owned(), Some(context)))
+            .unwrap();
+        let _ = std::fs::remove_file(path);
 
-    // Try to find usage from the most recent session
-    for session_path in &session_files {
-        if let Some(usage) = try_parse_transcript_file(session_path) {
-            return Some(usage);
-        }
+        assert_eq!(data.primary, "- · - tokens");
+        assert_eq!(data.metadata.get("source").unwrap(), "native");
     }
-
-    None
 }

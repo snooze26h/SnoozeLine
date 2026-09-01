@@ -1,315 +1,108 @@
-# CCometixLine
+# SnoozeLine
 
 [English](README.md) | [中文](README.zh.md)
 
-A high-performance Claude Code statusline tool written in Rust with Git integration, usage tracking, interactive TUI configuration, and Claude Code enhancement utilities.
+SnoozeLine is a compact Claude Code status line for private, local use. Its default built-in theme is `snooze26h`.
 
-![Language:Rust](https://img.shields.io/static/v1?label=Language&message=Rust&color=orange&style=flat-square)
-![License:MIT](https://img.shields.io/static/v1?label=License&message=MIT&color=blue&style=flat-square)
+> **Origin:** SnoozeLine is an independently maintained derivative of [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2 by Haleclipse and contributors. It is not an official upstream release. See [UPSTREAM.md](UPSTREAM.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the exact base, attribution, and license evidence.
 
-## Screenshots
+## Project state
 
-![CCometixLine](assets/img1.png)
+- Version: `0.1.0` (unreleased)
+- Repository: private and local; no `origin` remote
+- Distribution: no GitHub release and no SnoozeLine npm package
+- Installation: installed side by side at `~/.claude/snoozeline/snoozeline`; Claude Code now uses SnoozeLine while the existing `~/.claude/ccline` tree remains available for rollback
 
-The statusline shows: Model | Directory | Git Branch Status | Context Window Information
+## Display
 
-## Features
+The default line keeps the information intentionally small:
 
-### Core Functionality
-- **Git integration** with branch, status, and tracking info  
-- **Model display** with simplified Claude model names
-- **Usage tracking** based on transcript analysis
-- **Directory display** showing current workspace
-- **Minimal design** using Nerd Font icons
-
-### Interactive TUI Features
-- **Interactive main menu** when executed without input
-- **TUI configuration interface** with real-time preview
-- **Theme system** with multiple built-in presets
-- **Segment customization** with granular control
-- **Configuration management** (init, check, edit)
-
-### Claude Code Enhancement
-- **Context warning disabler** - Remove annoying "Context low" messages
-- **Verbose mode enabler** - Enhanced output detail
-- **Robust patcher** - Survives Claude Code version updates
-- **Automatic backups** - Safe modification with easy recovery
-
-## Installation
-
-### Quick Install (Recommended)
-
-Install via npm (works on all platforms):
-
-```bash
-# Install globally
-npm install -g @cometix/ccline
-
-# Or using yarn
-yarn global add @cometix/ccline
-
-# Or using pnpm
-pnpm add -g @cometix/ccline
+```text
+Model | folder | context% · tokens | 5h% · 7d% | Git branch/status
 ```
 
-Use npm mirror for faster download:
-```bash
-npm install -g @cometix/ccline --registry https://registry.npmmirror.com
+The `snooze26h` theme does not add a “shared” label or quota reset date.
+
+## Data rules
+
+- Native Claude Code context data takes precedence.
+- Current context tokens include input and cache input, not output tokens.
+- Context and quota percentages are validated and clamped to `0–100%`.
+- Native `5h` and `7d` values mean **used percentage**; unavailable values are shown as `-`, not fabricated.
+- When native quota data is absent, the compatible Claude usage endpoint and an account-scoped cache may be used.
+- Transcript content is not copied into SnoozeLine's cache.
+
+## Runtime files
+
+The default runtime root is `~/.claude/snoozeline`:
+
+```text
+~/.claude/snoozeline/
+├── config.toml
+├── models.toml
+├── themes/*.toml
+└── .api_usage_cache.json
 ```
 
-After installation:
-- ✅ Global command `ccline` is available everywhere
-- ⚙️ Follow the configuration steps below to integrate with Claude Code
-- 🎨 Run `ccline -c` to open configuration panel for theme selection
+Set `SNOOZELINE_HOME` to an absolute path to use another root. SnoozeLine does not automatically move or delete files under `~/.claude/ccline`.
 
-### Claude Code Configuration
+## Build and test
 
-Add to your Claude Code `settings.json`:
+Rust stable is required.
 
-**Cross-Platform (Recommended)**
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/ccline/ccline",
-    "padding": 0
-  }
-}
+```sh
+cargo metadata --locked --no-deps --format-version 1
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked
+git diff --check
 ```
 
-> **Note for Windows users:** Starting from Claude Code v2.1.47+, Unix-style path parsing is supported on Windows. The `~` symbol is automatically expanded to your user home directory. **Do not use `%USERPROFILE%`** - it no longer works reliably in v2.1.47+.
-> - Recommended: `~/.claude/ccline/ccline` (works on all platforms)
-> - Alternative: `"ccline"` (requires npm global installation)
+A local smoke test using only native fixture data; the model segment should render `Fable 5.1`:
 
-**Fallback (npm installation):**
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "ccline",
-    "padding": 0
-  }
-}
-```
-*Use this if npm global installation is available in PATH*
-
-### Update
-
-```bash
-npm update -g @cometix/ccline
+```sh
+printf '%s\n' '{"model":{"id":"claude-fable-5-1","display_name":"Fable 5.1"},"workspace":{"current_dir":"/tmp/snoozeline-demo"},"context_window":{"context_window_size":1000000,"used_percentage":24,"current_usage":{"input_tokens":242700}},"rate_limits":{"five_hour":{"used_percentage":18},"seven_day":{"used_percentage":4}}}' \
+  | SNOOZELINE_HOME=/tmp/snoozeline-smoke \
+    ./target/debug/snoozeline --theme snooze26h
 ```
 
-<details>
-<summary>Manual Installation (Click to expand)</summary>
+## Local installation and migration
 
-Alternatively, download from [Releases](https://github.com/Haleclipse/CCometixLine/releases):
+This migration keeps SnoozeLine beside the existing `ccline`, backs up Claude settings, and changes only the status-line command. This machine has completed the same reversible migration.
 
-#### Linux
+```sh
+cargo build --release --locked
 
-#### Option 1: Dynamic Binary (Recommended)
-```bash
-mkdir -p ~/.claude/ccline
-wget https://github.com/Haleclipse/CCometixLine/releases/latest/download/ccline-linux-x64.tar.gz
-tar -xzf ccline-linux-x64.tar.gz
-cp ccline ~/.claude/ccline/
-chmod +x ~/.claude/ccline/ccline
-```
-*Requires: Ubuntu 22.04+, CentOS 9+, Debian 11+, RHEL 9+ (glibc 2.35+)*
+install -d "$HOME/.claude/snoozeline"
+install -m 0755 ./target/release/snoozeline "$HOME/.claude/snoozeline/snoozeline"
 
-#### Option 2: Static Binary (Universal Compatibility)
-```bash
-mkdir -p ~/.claude/ccline
-wget https://github.com/Haleclipse/CCometixLine/releases/latest/download/ccline-linux-x64-static.tar.gz
-tar -xzf ccline-linux-x64-static.tar.gz
-cp ccline ~/.claude/ccline/
-chmod +x ~/.claude/ccline/ccline
-```
-*Works on any Linux distribution (static, no dependencies)*
+settings_file="$HOME/.claude/settings.json"
+(
+  set -eu
+  settings_dir="$(dirname "$settings_file")"
+  backup_file="$(mktemp "$settings_dir/settings.json.before-snoozeline.$(date +%Y%m%d-%H%M%S).XXXXXX")"
+  temp_file="$(mktemp "$settings_dir/.settings.json.snoozeline.XXXXXX")"
+  trap 'rm -f "$temp_file"' EXIT HUP INT TERM
 
-#### macOS (Intel)
-
-```bash  
-mkdir -p ~/.claude/ccline
-wget https://github.com/Haleclipse/CCometixLine/releases/latest/download/ccline-macos-x64.tar.gz
-tar -xzf ccline-macos-x64.tar.gz
-cp ccline ~/.claude/ccline/
-chmod +x ~/.claude/ccline/ccline
+  cp -p "$settings_file" "$backup_file"
+  cp -p "$settings_file" "$temp_file"
+  jq --arg command "$HOME/.claude/snoozeline/snoozeline" \
+    '.statusLine = ((.statusLine // {}) + {"type":"command","command":$command,"padding":0})' \
+    "$settings_file" > "$temp_file"
+  mv "$temp_file" "$settings_file"
+  trap - EXIT HUP INT TERM
+  printf 'Backup saved to: %s\n' "$backup_file"
+)
 ```
 
-#### macOS (Apple Silicon)
+Restart Claude Code after migration. To roll back:
 
-```bash
-mkdir -p ~/.claude/ccline  
-wget https://github.com/Haleclipse/CCometixLine/releases/latest/download/ccline-macos-arm64.tar.gz
-tar -xzf ccline-macos-arm64.tar.gz
-cp ccline ~/.claude/ccline/
-chmod +x ~/.claude/ccline/ccline
+```sh
+backup_file="/exact/backup/path/printed/above"
+cp -p "$backup_file" "$HOME/.claude/settings.json"
 ```
 
-#### Windows
+## License and provenance
 
-```powershell
-# Create directory and download
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\ccline"
-Invoke-WebRequest -Uri "https://github.com/Haleclipse/CCometixLine/releases/latest/download/ccline-windows-x64.zip" -OutFile "ccline-windows-x64.zip"
-Expand-Archive -Path "ccline-windows-x64.zip" -DestinationPath "."
-Move-Item "ccline.exe" "$env:USERPROFILE\.claude\ccline\"
-```
-
-</details>
-
-### Build from Source
-
-```bash
-git clone https://github.com/Haleclipse/CCometixLine.git
-cd CCometixLine
-cargo build --release
-
-# Linux/macOS
-mkdir -p ~/.claude/ccline
-cp target/release/ccometixline ~/.claude/ccline/ccline
-chmod +x ~/.claude/ccline/ccline
-
-# Windows (PowerShell)
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\ccline"
-copy target\release\ccometixline.exe "$env:USERPROFILE\.claude\ccline\ccline.exe"
-```
-
-## Usage
-
-### Theme Override
-
-```bash
-# Temporarily use specific theme (overrides config file)
-ccline --theme cometix
-ccline --theme minimal
-ccline --theme gruvbox
-ccline --theme nord
-ccline --theme powerline-dark
-
-# Or use custom theme files from ~/.claude/ccline/themes/
-ccline --theme my-custom-theme
-```
-
-### Claude Code Enhancement
-
-```bash
-# Disable context warnings and enable verbose mode
-ccline --patch /path/to/claude-code/cli.js
-
-# Example for common installation
-ccline --patch ~/.local/share/fnm/node-versions/v24.4.1/installation/lib/node_modules/@anthropic-ai/claude-code/cli.js
-```
-
-## Default Segments
-
-Displays: `Directory | Git Branch Status | Model | Context Window`
-
-### Git Status Indicators
-
-- Branch name with Nerd Font icon
-- Status: `✓` Clean, `●` Dirty, `⚠` Conflicts  
-- Remote tracking: `↑n` Ahead, `↓n` Behind
-
-### Model Display
-
-Shows simplified Claude model names:
-- `claude-3-5-sonnet` → `Sonnet 3.5`
-- `claude-4-sonnet` → `Sonnet 4`
-
-### Context Window Display
-
-Token usage percentage based on transcript analysis with context limit tracking.
-
-## Configuration
-
-CCometixLine supports full configuration via TOML files and interactive TUI:
-
-- **Configuration file**: `~/.claude/ccline/config.toml`
-- **Interactive TUI**: `ccline --config` for real-time editing with preview
-- **Theme files**: `~/.claude/ccline/themes/*.toml` for custom themes
-- **Automatic initialization**: `ccline --init` creates default configuration
-
-### Available Segments
-
-All segments are configurable with:
-- Enable/disable toggle
-- Custom separators and icons
-- Color customization
-- Format options
-
-Supported segments: Directory, Git, Model, Usage, Time, Cost, OutputStyle
-
-### Model Configuration (`models.toml`)
-
-Location: `~/.claude/ccline/models.toml` (auto-created on first run)
-
-This file configures how model IDs are displayed and their context window limits. Claude models (Sonnet, Opus, Haiku) are automatically recognized with version extraction — you only need this file for overrides or third-party models.
-
-```toml
-# Model entries: simple substring matching on the model ID
-# These take priority over built-in Claude model recognition
-[[models]]
-pattern = "glm-4.5"
-display_name = "GLM-4.5"
-context_limit = 128000
-
-[[models]]
-pattern = "kimi-k2"
-display_name = "Kimi K2"
-context_limit = 128000
-
-# Context modifiers: matched independently and composable with model entries
-# Overrides context_limit and appends display_suffix to the display name
-# e.g., model "Opus 4" + modifier " 1M" = "Opus 4 1M"
-[[context_modifiers]]
-pattern = "[1m]"
-display_suffix = " 1M"
-context_limit = 1000000
-```
-
-
-## Requirements
-
-- **Git**: Version 1.5+ (Git 2.22+ recommended for better branch detection)
-- **Terminal**: Must support Nerd Fonts for proper icon display
-  - Install a [Nerd Font](https://www.nerdfonts.com/) (e.g., FiraCode Nerd Font, JetBrains Mono Nerd Font)
-  - Configure your terminal to use the Nerd Font
-- **Claude Code**: For statusline integration
-
-## Development
-
-```bash
-# Build development version
-cargo build
-
-# Run tests
-cargo test
-
-# Build optimized release
-cargo build --release
-```
-
-## Roadmap
-
-- [x] TOML configuration file support
-- [x] TUI configuration interface
-- [x] Custom themes
-- [x] Interactive main menu
-- [x] Claude Code enhancement tools
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
-## Related Projects
-
-- [tweakcc](https://github.com/Piebald-AI/tweakcc) - Command-line tool to customize your Claude Code themes, thinking verbs, and more.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Haleclipse/CCometixLine&type=Date)](https://star-history.com/#Haleclipse/CCometixLine&Date)
+The upstream project declares `MIT` in its package metadata and README, but the v1.1.2 source snapshot does not contain the referenced `LICENSE` text. SnoozeLine therefore does not invent a license file or copyright holder. This repository remains private pending clarification of the exact upstream notice.

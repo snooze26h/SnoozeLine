@@ -90,7 +90,7 @@ impl PreviewComponent {
         let mut segments_data = Vec::new();
 
         for segment_config in &config.segments {
-            if !segment_config.enabled {
+            if !segment_config.enabled || !segment_config.id.is_supported() {
                 continue;
             }
 
@@ -105,11 +105,11 @@ impl PreviewComponent {
                     },
                 },
                 SegmentId::Directory => SegmentData {
-                    primary: "CCometixLine".to_string(),
+                    primary: "SnoozeLine".to_string(),
                     secondary: "".to_string(),
                     metadata: {
                         let mut map = HashMap::new();
-                        map.insert("current_dir".to_string(), "~/CCometixLine".to_string());
+                        map.insert("current_dir".to_string(), "~/SnoozeLine".to_string());
                         map
                     },
                 },
@@ -170,19 +170,7 @@ impl PreviewComponent {
                         map
                     },
                 },
-                SegmentId::Update => SegmentData {
-                    primary: format!("v{}", env!("CARGO_PKG_VERSION")),
-                    secondary: "".to_string(),
-                    metadata: {
-                        let mut map = HashMap::new();
-                        map.insert(
-                            "current_version".to_string(),
-                            env!("CARGO_PKG_VERSION").to_string(),
-                        );
-                        map.insert("update_available".to_string(), "false".to_string());
-                        map
-                    },
-                },
+                _ => continue,
             };
 
             segments_data.push((segment_config.clone(), mock_data));

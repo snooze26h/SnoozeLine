@@ -1,30 +1,27 @@
 {
-  "name": "@cometix/ccline",
-  "version": "0.0.0",
-  "description": "CCometixLine - High-performance Claude Code StatusLine tool",
+  "name": "snoozeline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private local packaging for the SnoozeLine Claude Code status line",
   "bin": {
-    "ccline": "./bin/ccline.js"
+    "snoozeline": "./bin/snoozeline.js"
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js"
   },
   "optionalDependencies": {
-    "@cometix/ccline-darwin-x64": "0.0.0",
-    "@cometix/ccline-darwin-arm64": "0.0.0",
-    "@cometix/ccline-linux-x64": "0.0.0",
-    "@cometix/ccline-linux-x64-musl": "0.0.0",
-    "@cometix/ccline-linux-arm64": "0.0.0",
-    "@cometix/ccline-linux-arm64-musl": "0.0.0",
-    "@cometix/ccline-win32-x64": "0.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Haleclipse/CCometixLine"
+    "snoozeline-darwin-x64": "0.1.0",
+    "snoozeline-darwin-arm64": "0.1.0",
+    "snoozeline-linux-x64": "0.1.0",
+    "snoozeline-linux-x64-musl": "0.1.0",
+    "snoozeline-linux-arm64": "0.1.0",
+    "snoozeline-linux-arm64-musl": "0.1.0",
+    "snoozeline-win32-x64": "0.1.0"
   },
   "keywords": ["claude", "statusline", "claude-code", "rust", "cli"],
-  "author": "Haleclipse",
-  "license": "MIT",
+  "author": "snooze26h",
+  "license": "UNLICENSED",
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   }
 }

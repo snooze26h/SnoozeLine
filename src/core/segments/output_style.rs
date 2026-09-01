@@ -1,4 +1,4 @@
-use super::{Segment, SegmentData};
+use super::{sanitize_text, Segment, SegmentData};
 use crate::config::{InputData, SegmentId};
 use std::collections::HashMap;
 
@@ -16,7 +16,7 @@ impl Segment for OutputStyleSegment {
         let output_style = input.output_style.as_ref()?;
 
         // Primary display: style name
-        let primary = output_style.name.clone();
+        let primary = sanitize_text(&output_style.name);
 
         let mut metadata = HashMap::new();
         metadata.insert("style_name".to_string(), output_style.name.clone());

@@ -2,56 +2,78 @@ name: CI
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [main]
   pull_request:
-    branches: [ master, main ]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test Suite
+  rust:
+    name: Rust checks
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: rustfmt, clippy
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
 
-    - name: Check formatting
-      run: cargo fmt -- --check
+      - name: Run tests
+        run: cargo test --locked --all-targets
 
-    - name: Run clippy
-      run: cargo clippy -- -D warnings
+  package-metadata:
+    name: Private package checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check npm/main/bin/snoozeline.js
+          node --check npm/main/scripts/postinstall.js
+          node --check npm/scripts/prepare-packages.js
+
+      - name: Validate private package metadata
+        run: |
+          node -e "const fs=require('fs');const paths=['npm/main/package.json',...fs.readdirSync('npm/platforms').map(name=>'npm/platforms/'+name+'/package.json')];for(const path of paths){const pkg=JSON.parse(fs.readFileSync(path,'utf8'));if(pkg.private!==true||pkg.version!=='0.1.0'||pkg.name.startsWith('@'))throw new Error('Invalid private package metadata: '+path)}"
+
+      - name: Stage private package templates
+        run: node npm/scripts/prepare-packages.js 0.1.0
 
   build:
-    name: Build Check
+    name: Build on ${{ matrix.os }}
+    needs: rust
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Build
-      run: cargo build --release
+      - name: Build
+        run: cargo build --release --locked

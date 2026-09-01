@@ -1,4 +1,5 @@
-use super::types::Config;
+use super::paths;
+use super::types::{AnsiColor, Config};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -20,7 +21,9 @@ impl ConfigLoader {
 
     pub fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Config, Box<dyn std::error::Error>> {
         let content = fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&content)?;
+        let mut config: Config = toml::from_str(&content)?;
+        config.remove_unsupported_segments();
+        config.check()?;
         Ok(config)
     }
 
@@ -32,6 +35,7 @@ impl ConfigLoader {
         fs::create_dir_all(&themes_dir)?;
 
         let builtin_themes = [
+            "snooze26h",
             "cometix",
             "default",
             "minimal",
@@ -63,13 +67,9 @@ impl ConfigLoader {
         Ok(())
     }
 
-    /// Get the themes directory path (~/.claude/ccline/themes/)
+    /// Get the themes directory path.
     pub fn get_themes_path() -> PathBuf {
-        if let Some(home) = dirs::home_dir() {
-            home.join(".claude").join("ccline").join("themes")
-        } else {
-            PathBuf::from(".claude/ccline/themes")
-        }
+        paths::themes_dir()
     }
 
     /// Ensure themes directory exists and has built-in themes (silent mode)
@@ -86,6 +86,7 @@ impl ConfigLoader {
         fs::create_dir_all(&themes_dir)?;
 
         let builtin_themes = [
+            "snooze26h",
             "default",
             "minimal",
             "gruvbox",
@@ -124,7 +125,9 @@ impl Config {
         }
 
         let content = fs::read_to_string(config_path)?;
-        let config: Config = toml::from_str(&content)?;
+        let mut config: Config = toml::from_str(&content)?;
+        config.remove_unsupported_segments();
+        config.check()?;
         Ok(config)
     }
 
@@ -142,13 +145,9 @@ impl Config {
         Ok(())
     }
 
-    /// Get the default config file path (~/.claude/ccline/config.toml)
+    /// Get the default config file path.
     fn get_config_path() -> PathBuf {
-        if let Some(home) = dirs::home_dir() {
-            home.join(".claude").join("ccline").join("config.toml")
-        } else {
-            PathBuf::from(".claude/ccline/config.toml")
-        }
+        paths::config_file()
     }
 
     /// Initialize config directory and create default config
@@ -179,12 +178,36 @@ impl Config {
         if self.segments.is_empty() {
             return Err("No segments configured".into());
         }
+        if self.style.separator.chars().any(char::is_control) {
+            return Err("Separator contains control characters".into());
+        }
 
         // Validate segment IDs are unique
         let mut seen_ids = std::collections::HashSet::new();
         for segment in &self.segments {
             if !seen_ids.insert(segment.id) {
                 return Err(format!("Duplicate segment ID: {:?}", segment.id).into());
+            }
+            if segment.icon.plain.chars().any(char::is_control)
+                || segment.icon.nerd_font.chars().any(char::is_control)
+            {
+                return Err(
+                    format!("Segment {:?} icon contains control characters", segment.id).into(),
+                );
+            }
+            for color in [
+                segment.colors.icon.as_ref(),
+                segment.colors.text.as_ref(),
+                segment.colors.background.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if matches!(color, AnsiColor::Color16 { c16 } if *c16 > 15) {
+                    return Err(
+                        format!("Segment {:?} has an invalid 16-color value", segment.id).into(),
+                    );
+                }
             }
         }
 

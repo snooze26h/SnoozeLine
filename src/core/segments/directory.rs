@@ -1,4 +1,4 @@
-use super::{Segment, SegmentData};
+use super::{sanitize_text, Segment, SegmentData};
 use crate::config::{InputData, SegmentId};
 use std::collections::HashMap;
 
@@ -12,40 +12,31 @@ impl DirectorySegment {
 
     /// Extract directory name from path, handling both Unix and Windows separators
     fn extract_directory_name(path: &str) -> String {
-        // Handle both Unix and Windows separators by trying both
-        let unix_name = path.split('/').next_back().unwrap_or("");
-        let windows_name = path.split('\\').next_back().unwrap_or("");
-
-        // Choose the name that indicates actual path splitting occurred
-        let result = if windows_name.len() < path.len() {
-            // Windows path separator was found
-            windows_name
-        } else if unix_name.len() < path.len() {
-            // Unix path separator was found
-            unix_name
-        } else {
-            // No separator found, use the whole path
-            path
-        };
-
-        if result.is_empty() {
+        let trimmed = path.trim_end_matches(['/', '\\']);
+        if trimmed.is_empty() {
             "root".to_string()
         } else {
-            result.to_string()
+            let name = trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed);
+            let sanitized = sanitize_text(name);
+            if sanitized.is_empty() {
+                "root".to_string()
+            } else {
+                sanitized
+            }
         }
     }
 }
 
 impl Segment for DirectorySegment {
     fn collect(&self, input: &InputData) -> Option<SegmentData> {
-        let current_dir = &input.workspace.current_dir;
+        let current_dir = input.current_dir();
 
         // Handle cross-platform path separators manually for better compatibility
         let dir_name = Self::extract_directory_name(current_dir);
 
         // Store the full path in metadata for potential use
         let mut metadata = HashMap::new();
-        metadata.insert("full_path".to_string(), current_dir.clone());
+        metadata.insert("full_path".to_string(), current_dir.to_string());
 
         Some(SegmentData {
             primary: dir_name,
@@ -56,5 +47,31 @@ impl Segment for DirectorySegment {
 
     fn id(&self) -> SegmentId {
         SegmentId::Directory
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DirectorySegment;
+
+    #[test]
+    fn handles_trailing_separators_on_both_platforms() {
+        assert_eq!(
+            DirectorySegment::extract_directory_name("/Users/name/项目/"),
+            "项目"
+        );
+        assert_eq!(
+            DirectorySegment::extract_directory_name(r"C:\Users\name\project\"),
+            "project"
+        );
+    }
+
+    #[test]
+    fn handles_roots_and_control_characters() {
+        assert_eq!(DirectorySegment::extract_directory_name("/"), "root");
+        assert_eq!(
+            DirectorySegment::extract_directory_name("/tmp/unsafe\u{1b}[31m"),
+            "unsafe[31m"
+        );
     }
 }

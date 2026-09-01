@@ -44,7 +44,7 @@ impl SegmentListComponent {
             .segments
             .iter()
             .enumerate()
-            .map(|(i, segment)| {
+            .filter_map(|(i, segment)| {
                 let is_selected = i == selected_segment && *selected_panel == Panel::SegmentList;
                 let enabled_marker = if segment.enabled { "●" } else { "○" };
                 let segment_name = match segment.id {
@@ -56,10 +56,10 @@ impl SegmentListComponent {
                     SegmentId::Cost => "Cost",
                     SegmentId::Session => "Session",
                     SegmentId::OutputStyle => "Output Style",
-                    SegmentId::Update => "Update",
+                    _ => return None,
                 };
 
-                if is_selected {
+                Some(if is_selected {
                     // Selected item with colored cursor
                     ListItem::new(Line::from(vec![
                         Span::styled("▶ ", Style::default().fg(Color::Cyan)),
@@ -68,7 +68,7 @@ impl SegmentListComponent {
                 } else {
                     // Non-selected item
                     ListItem::new(format!("  {} {}", enabled_marker, segment_name))
-                }
+                })
             })
             .collect();
         let segments_block = Block::default()

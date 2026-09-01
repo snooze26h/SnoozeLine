@@ -5,12 +5,16 @@ const path = require('path');
 const version = process.env.GITHUB_REF?.replace('refs/tags/v', '') || process.argv[2];
 if (!version) {
   console.error('Error: Version not provided');
-  console.error('Usage: GITHUB_REF=refs/tags/v1.0.0 node prepare-packages.js');
-  console.error('   or: node prepare-packages.js 1.0.0');
+  console.error('Usage: node prepare-packages.js 0.1.0');
   process.exit(1);
 }
 
-console.log(`🚀 Preparing packages for version ${version}`);
+if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+  console.error(`Error: Invalid semantic version: ${version}`);
+  process.exit(1);
+}
+
+console.log(`Preparing private SnoozeLine packages for version ${version}`);
 
 // Define platform structures
 const platforms = [
@@ -26,7 +30,7 @@ const platforms = [
 // Prepare platform packages
 platforms.forEach(platform => {
   const sourceDir = path.join(__dirname, '..', 'platforms', platform);
-  const targetDir = path.join(__dirname, '..', '..', 'npm-publish', platform);
+  const targetDir = path.join(__dirname, '..', '..', 'npm-staging', platform);
   
   // Create directory
   fs.mkdirSync(targetDir, { recursive: true });
@@ -37,6 +41,7 @@ platforms.forEach(platform => {
   
   // Update version
   packageJson.version = version;
+  packageJson.private = true;
   
   // Write to target directory
   fs.writeFileSync(
@@ -44,12 +49,12 @@ platforms.forEach(platform => {
     JSON.stringify(packageJson, null, 2) + '\n'
   );
   
-  console.log(`✓ Prepared @cometix/ccline-${platform} v${version}`);
+  console.log(`Prepared snoozeline-${platform} v${version}`);
 });
 
 // Prepare main package
 const mainSource = path.join(__dirname, '..', 'main');
-const mainTarget = path.join(__dirname, '..', '..', 'npm-publish', 'main');
+const mainTarget = path.join(__dirname, '..', '..', 'npm-staging', 'main');
 
 // Copy main package files
 fs.cpSync(mainSource, mainTarget, { recursive: true });
@@ -59,11 +64,12 @@ const mainPackageJsonPath = path.join(mainTarget, 'package.json');
 const mainPackageJson = JSON.parse(fs.readFileSync(mainPackageJsonPath, 'utf8'));
 
 mainPackageJson.version = version;
+mainPackageJson.private = true;
 
 // Update optionalDependencies versions
 if (mainPackageJson.optionalDependencies) {
   Object.keys(mainPackageJson.optionalDependencies).forEach(dep => {
-    if (dep.startsWith('@cometix/ccline-')) {
+    if (dep.startsWith('snoozeline-')) {
       mainPackageJson.optionalDependencies[dep] = version;
     }
   });
@@ -74,9 +80,5 @@ fs.writeFileSync(
   JSON.stringify(mainPackageJson, null, 2) + '\n'
 );
 
-console.log(`✓ Prepared @cometix/ccline v${version}`);
-console.log(`\n🎉 All packages prepared for version ${version}`);
-console.log('\nNext steps:');
-console.log('1. Copy binaries to platform directories');
-console.log('2. Publish platform packages first');
-console.log('3. Publish main package last');
+console.log(`Prepared snoozeline v${version}`);
+console.log('Private packages staged under npm-staging; publication is disabled.');

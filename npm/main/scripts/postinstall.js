@@ -2,19 +2,21 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Silent mode detection
-const silent = process.env.npm_config_loglevel === 'silent' || 
-               process.env.CCLINE_SKIP_POSTINSTALL === '1';
+if (process.env.SNOOZELINE_SKIP_POSTINSTALL === '1') {
+  process.exit(0);
+}
+
+const silent = process.env.npm_config_loglevel === 'silent';
 
 if (!silent) {
-  console.log('🚀 Setting up CCometixLine for Claude Code...');
+  console.log('Setting up SnoozeLine for Claude Code...');
 }
 
 try {
   const platform = process.platform;
   const arch = process.arch;
   const homeDir = os.homedir();
-  const claudeDir = path.join(homeDir, '.claude', 'ccline');
+  const claudeDir = path.join(homeDir, '.claude', 'snoozeline');
 
   // Create directory
   fs.mkdirSync(claudeDir, { recursive: true });
@@ -72,14 +74,13 @@ try {
   }
 
   const packageMap = {
-    'darwin-x64': '@cometix/ccline-darwin-x64',
-    'darwin-arm64': '@cometix/ccline-darwin-arm64',
-    'linux-x64': '@cometix/ccline-linux-x64',
-    'linux-x64-musl': '@cometix/ccline-linux-x64-musl',
-    'linux-arm64': '@cometix/ccline-linux-arm64',
-    'linux-arm64-musl': '@cometix/ccline-linux-arm64-musl',
-    'win32-x64': '@cometix/ccline-win32-x64',
-    'win32-ia32': '@cometix/ccline-win32-x64', // Use 64-bit for 32-bit
+    'darwin-x64': 'snoozeline-darwin-x64',
+    'darwin-arm64': 'snoozeline-darwin-arm64',
+    'linux-x64': 'snoozeline-linux-x64',
+    'linux-x64-musl': 'snoozeline-linux-x64-musl',
+    'linux-arm64': 'snoozeline-linux-arm64',
+    'linux-arm64-musl': 'snoozeline-linux-arm64-musl',
+    'win32-x64': 'snoozeline-win32-x64',
   };
 
   const packageName = packageMap[platformKey];
@@ -90,7 +91,7 @@ try {
     process.exit(0);
   }
 
-  const binaryName = platform === 'win32' ? 'ccline.exe' : 'ccline';
+  const binaryName = platform === 'win32' ? 'snoozeline.exe' : 'snoozeline';
   const targetPath = path.join(claudeDir, binaryName);
 
   // Multiple path search strategies for different package managers
@@ -144,38 +145,54 @@ try {
   if (!sourcePath) {
     if (!silent) {
       console.log('Binary package not installed, skipping Claude Code setup');
-      console.log('The global ccline command will still work via npm');
+      console.log('Build the matching private platform package before using the wrapper');
     }
     process.exit(0);
   }
 
-  // Copy or link the binary
-  if (platform === 'win32') {
-    // Windows: Copy file
-    fs.copyFileSync(sourcePath, targetPath);
-  } else {
-    // Unix: Try hard link first, fallback to copy
-    try {
-      if (fs.existsSync(targetPath)) {
-        fs.unlinkSync(targetPath);
-      }
-      fs.linkSync(sourcePath, targetPath);
-    } catch {
-      fs.copyFileSync(sourcePath, targetPath);
+  const stagingDir = fs.mkdtempSync(path.join(claudeDir, '.install-'));
+  const stagedPath = path.join(stagingDir, binaryName);
+
+  try {
+    fs.copyFileSync(sourcePath, stagedPath);
+    if (platform !== 'win32') {
+      fs.chmodSync(stagedPath, '755');
     }
-    fs.chmodSync(targetPath, '755');
+
+    if (platform === 'win32' && fs.existsSync(targetPath)) {
+      const backupPath = `${targetPath}.previous-${process.pid}`;
+      fs.renameSync(targetPath, backupPath);
+      try {
+        fs.renameSync(stagedPath, targetPath);
+      } catch (error) {
+        fs.renameSync(backupPath, targetPath);
+        throw error;
+      }
+      try {
+        fs.unlinkSync(backupPath);
+      } catch {
+        // The new binary is installed; a leftover backup is recoverable.
+      }
+    } else {
+      fs.renameSync(stagedPath, targetPath);
+    }
+  } finally {
+    try {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+    } catch {
+      // A leftover staging directory is harmless and can be removed manually.
+    }
   }
 
   if (!silent) {
-    console.log('✨ CCometixLine is ready for Claude Code!');
-    console.log(`📍 Location: ${targetPath}`);
-    console.log('🎉 You can now use: ccline --help');
+    console.log('SnoozeLine is ready for Claude Code.');
+    console.log(`Location: ${targetPath}`);
+    console.log('Run: snoozeline --help');
   }
 } catch (error) {
   // Silent failure - don't break installation
   if (!silent) {
     console.log('Note: Could not auto-configure for Claude Code');
-    console.log('The global ccline command will still work.');
-    console.log('You can manually copy ccline to ~/.claude/ccline/ if needed');
+    console.log('You can manually copy snoozeline to ~/.claude/snoozeline/ if needed');
   }
 }

@@ -4,4 +4,6 @@ pre-commit:
     fmt-check:
       run: cargo fmt --all -- --check
     clippy:
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --locked --all-targets -- -D warnings
+    test:
+      run: cargo test --locked --all-targets

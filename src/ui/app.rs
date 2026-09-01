@@ -72,16 +72,10 @@ impl App {
         }
 
         // Load config
-        let mut config = Config::load().unwrap_or_else(|_| Config::default());
-
-        // If a theme is specified, reload it to get the latest changes
-        if !config.theme.is_empty() && config.theme != "default" {
-            if let Ok(theme_config) =
-                crate::ui::themes::ThemePresets::load_theme_from_file(&config.theme)
-            {
-                config = theme_config;
-            }
-        }
+        let config = Config::load().unwrap_or_else(|error| {
+            eprintln!("snoozeline: invalid config, using defaults: {}", error);
+            Config::default()
+        });
 
         // Terminal setup
         enable_raw_mode()?;
@@ -386,7 +380,7 @@ impl App {
             .split(f.area());
 
         // Title
-        let title_text = format!("CCometixLine Configurator v{}", env!("CARGO_PKG_VERSION"));
+        let title_text = format!("SnoozeLine Configurator v{}", env!("CARGO_PKG_VERSION"));
         let title = Paragraph::new(title_text)
             .block(Block::default().borders(Borders::ALL))
             .style(Style::default().fg(Color::Cyan))
@@ -495,7 +489,6 @@ impl App {
             Panel::SegmentList => {
                 // Toggle segment enabled/disabled in segment list
                 if let Some(segment) = self.config.segments.get_mut(self.selected_segment) {
-                    segment.enabled = !segment.enabled;
                     let segment_name = match segment.id {
                         SegmentId::Model => "Model",
                         SegmentId::Directory => "Directory",
@@ -505,8 +498,9 @@ impl App {
                         SegmentId::Cost => "Cost",
                         SegmentId::Session => "Session",
                         SegmentId::OutputStyle => "Output Style",
-                        SegmentId::Update => "Update",
+                        _ => return,
                     };
+                    segment.enabled = !segment.enabled;
                     let is_enabled = segment.enabled;
                     self.status_message = Some(format!(
                         "{} segment {}",
@@ -522,7 +516,6 @@ impl App {
                     FieldSelection::Enabled => {
                         // Toggle enabled state in settings panel too
                         if let Some(segment) = self.config.segments.get_mut(self.selected_segment) {
-                            segment.enabled = !segment.enabled;
                             let segment_name = match segment.id {
                                 SegmentId::Model => "Model",
                                 SegmentId::Directory => "Directory",
@@ -532,8 +525,9 @@ impl App {
                                 SegmentId::Cost => "Cost",
                                 SegmentId::Session => "Session",
                                 SegmentId::OutputStyle => "Output Style",
-                                SegmentId::Update => "Update",
+                                _ => return,
                             };
+                            segment.enabled = !segment.enabled;
                             let is_enabled = segment.enabled;
                             self.status_message = Some(format!(
                                 "{} segment {}",
