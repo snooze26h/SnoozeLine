@@ -9,8 +9,8 @@ SnoozeLine is a compact Claude Code status line for private, local use. Its defa
 ## Project state
 
 - Version: `0.1.0` (unreleased)
-- Repository: private and local; no `origin` remote
-- Distribution: no GitHub release and no SnoozeLine npm package
+- Repository: private at [snooze26h/SnoozeLine](https://github.com/snooze26h/SnoozeLine), with `origin` configured
+- Distribution: private source hosting only; no GitHub release and no SnoozeLine npm package
 - Installation: installed side by side at `~/.claude/snoozeline/snoozeline`; Claude Code now uses SnoozeLine while the existing `~/.claude/ccline` tree remains available for rollback
 
 ## Display

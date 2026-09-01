@@ -9,8 +9,8 @@ SnoozeLine 是一个供个人在本地使用的精简 Claude Code 状态栏，�
 ## 当前状态
 
 - 版本：`0.1.0`，尚未发布
-- 仓库：仅限本机私有使用，尚未配置 `origin`
-- 分发：没有 GitHub Release，也没有 SnoozeLine npm 包
+- 仓库：已私有托管于 [snooze26h/SnoozeLine](https://github.com/snooze26h/SnoozeLine)，并已配置 `origin`
+- 分发：仅私有托管源码，没有 GitHub Release，也没有 SnoozeLine npm 包
 - 安装：已并行安装到 `~/.claude/snoozeline/snoozeline`；Claude Code 已切换使用 SnoozeLine，旧 `~/.claude/ccline` 完整保留用于回滚
 
 ## 显示内容

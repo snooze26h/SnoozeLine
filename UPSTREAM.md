@@ -11,7 +11,7 @@ SnoozeLine is an independently maintained derivative of [CCometixLine](https://g
 | Import date | `2026-09-01` |
 | Downstream project | SnoozeLine `0.1.0` |
 | Downstream maintainer | snooze26h |
-| Downstream remote | None; private local repository |
+| Downstream remote | [snooze26h/SnoozeLine](https://github.com/snooze26h/SnoozeLine) (private) |
 
 The upstream Git history through the commit above is preserved. SnoozeLine changes begin after that commit. SnoozeLine is not affiliated with, sponsored by, or endorsed by Haleclipse or the upstream project.
 

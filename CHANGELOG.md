@@ -31,7 +31,7 @@ All notable SnoozeLine changes are recorded here. Entries before SnoozeLine rema
 
 ### Distribution
 
-- No `origin` remote, GitHub release, or npm publication has been performed.
+- Created the private `snooze26h/SnoozeLine` repository and configured `origin`; no GitHub release or npm publication has been performed.
 - Public distribution remains pending clarification of the missing upstream license notice.
 
 ## Upstream baseline
