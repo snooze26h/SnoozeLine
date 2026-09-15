@@ -2,81 +2,76 @@
 
 [English](README.md) | [中文](README.zh.md)
 
-SnoozeLine is a compact Claude Code status line for private, local use. Its default built-in theme is `snooze26h`.
+SnoozeLine is a compact, customizable Claude Code status line written in Rust. See your model, working directory, context usage, and 5-hour / 7-day quota usage in one line, with Git status and output style when available.
 
-> **Origin:** SnoozeLine is an independently maintained derivative of [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2 by Haleclipse and contributors. It is not an official upstream release. See [UPSTREAM.md](UPSTREAM.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the exact base, attribution, and license evidence.
+Independently maintained from [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2, with `snooze26h` as the default theme.
 
-## Project state
+## Preview
 
-- Version: `0.1.0` (unreleased)
-- Repository: private at [snooze26h/SnoozeLine](https://github.com/snooze26h/SnoozeLine), with `origin` configured
-- Distribution: private source hosting only; no GitHub release and no SnoozeLine npm package
-- Installation: installed side by side at `~/.claude/snoozeline/snoozeline`; Claude Code now uses SnoozeLine while the existing `~/.claude/ccline` tree remains available for rollback
+![SnoozeLine using the snooze26h theme: Fable 5.1, snooze26h folder, 26% context, 256.8k tokens, unavailable 5h quota, 24% 7d quota, and default output style](assets/snoozeline-preview.png)
 
-## Display
+An actual terminal screenshot of the `snooze26h` theme. Icons require a Nerd Font; colors follow your terminal palette.
 
-The default line keeps the information intentionally small:
+## What it shows
 
-```text
-Model | folder | context% · tokens | 5h% · 7d% | Git branch/status
-```
+| Field | Example | Meaning |
+| --- | --- | --- |
+| Model | `Fable 5.1` | Current model name |
+| Directory | `snooze26h` | Current working folder |
+| Context | `26% · 256.8k tokens` | Context window usage and current input plus cache input tokens |
+| Quota | `5h - · 7d 24%` | **Used percentage** for each quota window; `-` means that window is unavailable |
+| Git | Branch and status | Shown when Git information is available for the working directory |
+| Output style | `default` | The output style reported by Claude Code |
 
-The `snooze26h` theme does not add a “shared” label or quota reset date.
+Git information is absent from this screenshot. The final rocket icon and `default` label indicate the output style.
 
-## Data rules
+### Features
 
-- Native Claude Code context data takes precedence.
-- Current context tokens include input and cache input, not output tokens.
-- Context and quota percentages are validated and clamped to `0–100%`.
-- Native `5h` and `7d` values mean **used percentage**; unavailable values are shown as `-`, not fabricated.
-- When native quota data is absent, the compatible Claude usage endpoint and an account-scoped cache may be used.
-- Transcript content is not copied into SnoozeLine's cache.
+- **Compact default layout:** model, directory, context, quota, Git, and output style; no quota reset timestamp.
+- **Native data first:** uses Claude Code's context and quota fields when available, with compatible fallbacks.
+- **Terminal configuration UI:** preview themes and adjust segment visibility, order, colors, icons, and separators with `--config`.
+- **Ten built-in themes:** `snooze26h`, `cometix`, `default`, `minimal`, `gruvbox`, `nord`, and four Powerline themes. Custom themes use TOML files.
+- **Separate runtime directory:** configuration and cache live under `~/.claude/snoozeline`, allowing an existing `ccline` installation to remain available for rollback.
 
-## Runtime files
+## Installation
 
-The default runtime root is `~/.claude/snoozeline`:
+The repository publicly hosts the source for version `0.1.0`; no GitHub release is published. The steps below build and install from source on macOS or Linux.
 
-```text
-~/.claude/snoozeline/
-├── config.toml
-├── models.toml
-├── themes/*.toml
-└── .api_usage_cache.json
-```
+Requirements: Claude Code, Git, Rust stable, and a Nerd Font selected in your terminal for the default theme's icons. The `default` theme uses ordinary emoji icons instead.
 
-Set `SNOOZELINE_HOME` to an absolute path to use another root. SnoozeLine does not automatically move or delete files under `~/.claude/ccline`.
-
-## Build and test
-
-Rust stable is required.
+### 1. Build and install
 
 ```sh
-cargo metadata --locked --no-deps --format-version 1
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cargo build --locked
-git diff --check
-```
-
-A local smoke test using only native fixture data; the model segment should render `Fable 5.1`:
-
-```sh
-printf '%s\n' '{"model":{"id":"claude-fable-5-1","display_name":"Fable 5.1"},"workspace":{"current_dir":"/tmp/snoozeline-demo"},"context_window":{"context_window_size":1000000,"used_percentage":24,"current_usage":{"input_tokens":242700}},"rate_limits":{"five_hour":{"used_percentage":18},"seven_day":{"used_percentage":4}}}' \
-  | SNOOZELINE_HOME=/tmp/snoozeline-smoke \
-    ./target/debug/snoozeline --theme snooze26h
-```
-
-## Local installation and migration
-
-This migration keeps SnoozeLine beside the existing `ccline`, backs up Claude settings, and changes only the status-line command. This machine has completed the same reversible migration.
-
-```sh
+git clone https://github.com/snooze26h/SnoozeLine.git
+cd SnoozeLine
 cargo build --release --locked
 
 install -d "$HOME/.claude/snoozeline"
 install -m 0755 ./target/release/snoozeline "$HOME/.claude/snoozeline/snoozeline"
+```
 
+### 2. Connect to Claude Code
+
+Back up `~/.claude/settings.json`, then merge the following `statusLine` entry into it, preserving your other settings. Replace the example command with the absolute path to the installed binary; keep the inner quotes if the path contains spaces.
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "\"/absolute/path/to/.claude/snoozeline/snoozeline\"",
+    "padding": 0
+  }
+}
+```
+
+Restart Claude Code to load the status line. When migrating from CCometixLine, keep `~/.claude/ccline` in place so you can restore the previous command.
+
+<details>
+<summary>Optional: back up and update an existing settings file with jq</summary>
+
+Requires `jq` and an existing `~/.claude/settings.json`. This creates a timestamped backup and updates only the `statusLine` entry.
+
+```sh
 settings_file="$HOME/.claude/settings.json"
 (
   set -eu
@@ -88,7 +83,7 @@ settings_file="$HOME/.claude/settings.json"
   cp -p "$settings_file" "$backup_file"
   cp -p "$settings_file" "$temp_file"
   jq --arg command "$HOME/.claude/snoozeline/snoozeline" \
-    '.statusLine = ((.statusLine // {}) + {"type":"command","command":$command,"padding":0})' \
+    '.statusLine = ((.statusLine // {}) + {"type":"command","command":($command | @sh),"padding":0})' \
     "$settings_file" > "$temp_file"
   mv "$temp_file" "$settings_file"
   trap - EXIT HUP INT TERM
@@ -96,13 +91,73 @@ settings_file="$HOME/.claude/settings.json"
 )
 ```
 
-Restart Claude Code after migration. To roll back:
+To roll back, replace the placeholder with the exact backup path printed above. This restores the entire settings file from that backup:
 
 ```sh
 backup_file="/exact/backup/path/printed/above"
 cp -p "$backup_file" "$HOME/.claude/settings.json"
 ```
 
-## License and provenance
+</details>
 
-The upstream project declares `MIT` in its package metadata and README, but the v1.1.2 source snapshot does not contain the referenced `LICENSE` text. SnoozeLine therefore does not invent a license file or copyright holder. This repository remains private pending clarification of the exact upstream notice.
+## Configuration
+
+Open the interactive editor:
+
+```sh
+"$HOME/.claude/snoozeline/snoozeline" --config
+```
+
+Press `p` to cycle through themes, `s` to save, and `Esc` to exit. The editor also supports changing individual segments and saving custom themes.
+
+The default runtime root is `~/.claude/snoozeline`:
+
+```text
+~/.claude/snoozeline/
+├── config.toml          # Status-line appearance and enabled segments
+├── models.toml          # Model display-name overrides
+├── themes/*.toml        # Built-in and custom themes
+└── .api_usage_cache.json
+```
+
+Set `SNOOZELINE_HOME` to an absolute path to use another runtime root. Files are created as needed.
+
+## How usage is calculated
+
+- Native Claude Code context data takes precedence. Current context tokens include input and cache input, excluding output tokens.
+- Context and quota percentages are validated and clamped to `0–100%`.
+- `5h` and `7d` show **used percentages**. When one window is unavailable, its value is `-`; when neither is available after fallback, the quota segment is hidden.
+- If native quota data is unavailable, SnoozeLine can use the compatible Claude usage endpoint and an account-scoped cache.
+- SnoozeLine's own cache does not store transcript content.
+
+## Development
+
+Run from the repository root:
+
+```sh
+cargo metadata --locked --no-deps --format-version 1
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked
+git diff --check
+```
+
+After building, render a line using native fixture data and a temporary runtime directory:
+
+```sh
+smoke_root="$(mktemp -d)"
+printf '%s\n' '{"model":{"id":"claude-fable-5-1","display_name":"Fable 5.1"},"workspace":{"current_dir":"/tmp/snoozeline-demo"},"context_window":{"context_window_size":1000000,"used_percentage":26,"current_usage":{"input_tokens":256800}},"rate_limits":{"five_hour":{},"seven_day":{"used_percentage":24}},"output_style":{"name":"default"}}' \
+  | SNOOZELINE_HOME="$smoke_root" \
+    ./target/debug/snoozeline --theme snooze26h
+```
+
+Expected fields: `Fable 5.1`, `snoozeline-demo`, `26% · 256.8k tokens`, `5h - · 7d 24%`, and `default`. This fixture does not require an account or a quota API request.
+
+## Upstream and license
+
+SnoozeLine derives from CCometixLine v1.1.2 by Haleclipse and contributors. The upstream Git history and authorship are preserved; SnoozeLine is independently maintained and is not an official upstream release.
+
+The upstream package metadata and README declare `MIT`, but the imported v1.1.2 snapshot lacks the referenced `LICENSE` text. That notice remains unresolved; public source visibility does not resolve the missing notice. SnoozeLine does not supply an inferred license text or copyright holder.
+
+See [UPSTREAM.md](UPSTREAM.md) for the exact base and downstream changes, [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution, and [CHANGELOG.md](CHANGELOG.md) for the change history.

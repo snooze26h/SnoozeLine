@@ -2,7 +2,7 @@
 
 ## Project identity
 
-SnoozeLine `0.1.0` is a private, local Claude Code status-line project derived from CCometixLine `v1.1.2` at commit `a73b166557662b2e79b83ea005fb297003748fb0`.
+SnoozeLine `0.1.0` is a Claude Code status-line project derived from CCometixLine `v1.1.2` at commit `a73b166557662b2e79b83ea005fb297003748fb0`. Its source repository is public, and it is built and installed locally.
 
 - Product, crate, library, binary, and CLI name: `SnoozeLine` / `snoozeline`
 - Default built-in theme: `snooze26h`

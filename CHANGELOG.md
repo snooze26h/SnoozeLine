@@ -4,6 +4,14 @@ All notable SnoozeLine changes are recorded here. Entries before SnoozeLine rema
 
 ## [0.1.0] - Unreleased
 
+### Documentation
+
+- Added an actual `snooze26h` terminal screenshot to both READMEs.
+- Reorganized the English and Chinese introductions around the preview, displayed fields, installation, and configuration.
+- Documented the output-style field and partial quota availability, and aligned the smoke fixture with the preview.
+- Made the settings-update example quote executable paths for shell execution.
+- Corrected the current repository visibility to public across project and provenance documentation while retaining the unresolved upstream license notice.
+
 ### Identity
 
 - Established the private local project name `SnoozeLine`.
@@ -32,7 +40,7 @@ All notable SnoozeLine changes are recorded here. Entries before SnoozeLine rema
 ### Distribution
 
 - Created the private `snooze26h/SnoozeLine` repository and configured `origin`; no GitHub release or npm publication has been performed.
-- Public distribution remains pending clarification of the missing upstream license notice.
+- The source repository is now public; the missing upstream license notice remains unresolved.
 
 ## Upstream baseline
 

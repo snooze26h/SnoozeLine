@@ -14,4 +14,4 @@ The upstream package metadata and README files declare `MIT`. The referenced `LI
 
 SnoozeLine retains the upstream Git authorship and documents its downstream modifications separately. See [UPSTREAM.md](UPSTREAM.md) for the full provenance record.
 
-This notice grants no additional rights and does not replace the license terms of CCometixLine or any Rust dependency listed in `Cargo.lock`. SnoozeLine remains private and unreleased pending clarification of the exact upstream notice.
+This notice grants no additional rights and does not replace the license terms of CCometixLine or any Rust dependency listed in `Cargo.lock`. SnoozeLine's source repository is public, with no GitHub release; the exact upstream notice still needs clarification.
