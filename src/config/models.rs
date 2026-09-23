@@ -197,6 +197,7 @@ impl ModelConfig {
     ///
     /// Matching priority for display_name:
     ///   1. User/built-in model entries (simple substring match)
+    ///      Standard Claude names follow the actual model version; custom aliases stay fixed.
     ///   2. Built-in Claude model families (regex with version extraction)
     ///   3. None (caller should use upstream fallback)
     ///
@@ -212,7 +213,16 @@ impl ModelConfig {
             .model_entries
             .iter()
             .find(|e| model_lower.contains(&e.pattern.to_lowercase()))
-            .map(|e| (Some(e.display_name.clone()), Some(e.context_limit)))
+            .map(|e| {
+                // 旧配置常用标准名称来覆盖上下文容量；此时名称应跟随实际模型版本，
+                // 避免前缀匹配吞掉小版本号。自定义别名和容量覆盖仍保持原样。
+                let display_name = Self::match_builtin_family(&e.pattern)
+                    .filter(|(name, _)| name == &e.display_name)
+                    .and_then(|_| Self::match_builtin_family(model_id))
+                    .map(|(name, _)| name)
+                    .unwrap_or_else(|| e.display_name.clone());
+                (Some(display_name), Some(e.context_limit))
+            })
             .unwrap_or_else(|| {
                 Self::match_builtin_family(model_id)
                     .map(|(name, limit)| (Some(name), Some(limit)))
@@ -291,7 +301,8 @@ impl ModelConfig {
              # Model configurations (simple substring matching)\n\
              # Each [[models]] section defines a model pattern and its properties\n\
              # These take priority over built-in Claude model recognition\n\
-             # Avoid broad version prefixes: they also match later minor versions\n\
+             # Standard Claude names follow the matched model's actual version\n\
+             # Custom aliases stay fixed; context_limit overrides are preserved\n\
              \n\
              # Example:\n\
              # [[models]]\n\
@@ -380,21 +391,103 @@ mod tests {
     }
 
     #[test]
-    fn user_model_entries_keep_substring_priority() {
-        let mut config = ModelConfig::default();
-        config.model_entries.insert(
-            0,
-            ModelEntry {
-                pattern: "claude-fable-5".to_string(),
-                display_name: "Pinned Fable".to_string(),
-                context_limit: 500_000,
-            },
-        );
+    fn standard_model_overrides_preserve_actual_versions() {
+        let cases = [
+            ("claude-opus-5", "Opus 5", "claude-opus-5", "Opus 5"),
+            ("claude-opus-5", "Opus 5", "claude-opus-5-5", "Opus 5.5"),
+            (
+                "claude-opus-5",
+                "Opus 5",
+                "claude-opus-5-5-20260922",
+                "Opus 5.5",
+            ),
+            (
+                "claude-opus-5",
+                "Opus 5",
+                "claude-opus-5-20260922",
+                "Opus 5",
+            ),
+            (
+                "claude-opus-5",
+                "Opus 5",
+                "claude-opus-5-5-thinking",
+                "Opus 5.5",
+            ),
+            (
+                "claude-opus-5-1",
+                "Opus 5.1",
+                "claude-opus-5-10",
+                "Opus 5.10",
+            ),
+            (
+                "claude-sonnet-5",
+                "Sonnet 5",
+                "claude-sonnet-5-1",
+                "Sonnet 5.1",
+            ),
+            ("claude-haiku-4", "Haiku 4", "claude-haiku-4-5", "Haiku 4.5"),
+            ("claude-fable-5", "Fable 5", "claude-fable-5-1", "Fable 5.1"),
+            (
+                "claude-mythos-5",
+                "Mythos 5",
+                "claude-mythos-5-1",
+                "Mythos 5.1",
+            ),
+        ];
 
-        assert_eq!(
-            config.get_display_name("claude-fable-5-1").as_deref(),
-            Some("Pinned Fable")
-        );
-        assert_eq!(config.get_context_limit("claude-fable-5-1"), 500_000);
+        for (pattern, display_name, model_id, expected_name) in cases {
+            let mut config = ModelConfig::default();
+            config.model_entries.insert(
+                0,
+                ModelEntry {
+                    pattern: pattern.to_string(),
+                    display_name: display_name.to_string(),
+                    context_limit: 500_000,
+                },
+            );
+
+            assert_eq!(
+                config.get_display_name(model_id).as_deref(),
+                Some(expected_name),
+                "{model_id}"
+            );
+            assert_eq!(config.get_context_limit(model_id), 500_000);
+            assert_eq!(config.try_get_context_limit(model_id), Some(500_000));
+
+            let extended_id = format!("{model_id}[1m]");
+            assert_eq!(
+                config.get_display_name(&extended_id),
+                Some(format!("{expected_name} 1M"))
+            );
+            assert_eq!(config.get_context_limit(&extended_id), 1_000_000);
+        }
+    }
+
+    #[test]
+    fn user_model_entries_keep_substring_priority() {
+        let cases = [
+            ("claude-fable-5", "Pinned Fable", "claude-fable-5-1"),
+            ("claude-opus-5", "Pinned Opus", "claude-opus-5-5"),
+            ("claude-opus", "Opus 5", "claude-opus-5-5"),
+            ("glm-4.5", "Custom GLM", "glm-4.5-air"),
+        ];
+
+        for (pattern, display_name, model_id) in cases {
+            let mut config = ModelConfig::default();
+            config.model_entries.insert(
+                0,
+                ModelEntry {
+                    pattern: pattern.to_string(),
+                    display_name: display_name.to_string(),
+                    context_limit: 500_000,
+                },
+            );
+
+            assert_eq!(
+                config.get_display_name(model_id).as_deref(),
+                Some(display_name)
+            );
+            assert_eq!(config.get_context_limit(model_id), 500_000);
+        }
     }
 }

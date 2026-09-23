@@ -28,6 +28,7 @@ All notable SnoozeLine changes are recorded here. Entries before SnoozeLine rema
 - Corrected current-context token semantics and bounded percentages to `0–100%`.
 - Rendered quota values consistently as used percentages, including explicit missing values.
 - Fixed `claude-fable-5-1` rendering as `Fable 5.1` instead of `Fable 5`.
+- Preserved actual Claude minor versions when legacy model overrides use standard names (for example, `Opus 5.5` instead of `Opus 5`), while retaining custom aliases, context limits, and context suffixes.
 - Hardened directory, Git, segment, and configuration handling against malformed input and slow commands.
 
 ### Runtime

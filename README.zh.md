@@ -122,6 +122,8 @@ cp -p "$backup_file" "$HOME/.claude/settings.json"
 
 可以将 `SNOOZELINE_HOME` 设为绝对路径，指定其他运行根目录。文件按需创建。
 
+在 `models.toml` 中，如果 Claude 条目的 `display_name` 与 `pattern` 对应的标准名称一致，显示名称会跟随实际模型版本。例如，`pattern = "claude-opus-5"` 配合 `display_name = "Opus 5"`，遇到 `claude-opus-5-5` 时会显示 `Opus 5.5`，同时保留该条目的 `context_limit`。`Work Opus` 这样的自定义别名保持不变，`1M` 等上下文后缀仍正常追加。
+
 ## 用量计算规则
 
 - 优先使用 Claude Code 原生上下文数据。当前上下文 token 包括输入和缓存输入，不计输出 token。

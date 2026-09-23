@@ -122,6 +122,8 @@ The default runtime root is `~/.claude/snoozeline`:
 
 Set `SNOOZELINE_HOME` to an absolute path to use another runtime root. Files are created as needed.
 
+In `models.toml`, a Claude entry whose `display_name` matches the standard name for its `pattern` follows the actual model version. For example, `pattern = "claude-opus-5"` with `display_name = "Opus 5"` displays `Opus 5.5` for `claude-opus-5-5`, while preserving the entry's `context_limit`. Custom aliases such as `Work Opus` stay fixed, and context suffixes such as `1M` still apply.
+
 ## How usage is calculated
 
 - Native Claude Code context data takes precedence. Current context tokens include input and cache input, excluding output tokens.
