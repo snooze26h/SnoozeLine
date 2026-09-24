@@ -17,11 +17,18 @@ impl Segment for ModelSegment {
         metadata.insert("model_id".to_string(), input.model.id.clone());
         metadata.insert("display_name".to_string(), input.model.display_name.clone());
 
+        // 只使用本次状态栏输入的会话值；配置文件和环境变量可能落后于 /effort 的选择。
+        let secondary = input.effort.as_ref().map_or_else(String::new, |effort| {
+            let level = effort.level.as_str();
+            metadata.insert("effort_level".to_string(), level.to_string());
+            format!("· {level}")
+        });
+
         Some(SegmentData {
             primary: sanitize_text(
                 &self.format_model_name(&input.model.id, &input.model.display_name),
             ),
-            secondary: String::new(),
+            secondary,
             metadata,
         })
     }

@@ -96,11 +96,12 @@ impl PreviewComponent {
 
             let mock_data = match segment_config.id {
                 SegmentId::Model => SegmentData {
-                    primary: "Sonnet 4".to_string(),
-                    secondary: "".to_string(),
+                    primary: "Fable 5.1".to_string(),
+                    secondary: "· high".to_string(),
                     metadata: {
                         let mut map = HashMap::new();
-                        map.insert("model".to_string(), "claude-4-sonnet-20250512".to_string());
+                        map.insert("model".to_string(), "claude-fable-5-1".to_string());
+                        map.insert("effort_level".to_string(), "high".to_string());
                         map
                     },
                 },

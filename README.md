@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh.md)
 
-SnoozeLine is a compact, customizable Claude Code status line written in Rust. See your model, working directory, context usage, and 5-hour / 7-day quota usage in one line, with Git status and output style when available.
+SnoozeLine is a compact, customizable Claude Code status line written in Rust. See your model and reasoning effort, working directory, context usage, and 5-hour / 7-day quota usage in one line, with Git status and output style when available.
 
 Independently maintained from [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2, with `snooze26h` as the default theme.
 
@@ -10,13 +10,13 @@ Independently maintained from [CCometixLine](https://github.com/Haleclipse/CCome
 
 ![SnoozeLine using the snooze26h theme: Fable 5.1, snooze26h folder, 26% context, 256.8k tokens, unavailable 5h quota, 24% 7d quota, and default output style](assets/snoozeline-preview.png)
 
-An actual terminal screenshot of the `snooze26h` theme. Icons require a Nerd Font; colors follow your terminal palette.
+An actual terminal screenshot of the `snooze26h` theme, taken before reasoning effort was added. Icons require a Nerd Font; colors follow your terminal palette.
 
 ## What it shows
 
 | Field | Example | Meaning |
 | --- | --- | --- |
-| Model | `Fable 5.1` | Current model name |
+| Model | `Fable 5.1 · max` | Current model name and reasoning effort, when provided |
 | Directory | `snooze26h` | Current working folder |
 | Context | `26% · 256.8k tokens` | Context window usage and current input plus cache input tokens |
 | Quota | `5h - · 7d 24%` | **Used percentage** for each quota window; `-` means that window is unavailable |
@@ -29,6 +29,7 @@ Git information is absent from this screenshot. The final rocket icon and `defau
 
 - **Compact default layout:** model, directory, context, quota, Git, and output style; no quota reset timestamp.
 - **Native data first:** uses Claude Code's context and quota fields when available, with compatible fallbacks.
+- **Live reasoning effort:** shows `low`, `medium`, `high`, `xhigh`, or `max` beside the model name, following the current session's selection.
 - **Terminal configuration UI:** preview themes and adjust segment visibility, order, colors, icons, and separators with `--config`.
 - **Ten built-in themes:** `snooze26h`, `cometix`, `default`, `minimal`, `gruvbox`, `nord`, and four Powerline themes. Custom themes use TOML files.
 - **Separate runtime directory:** configuration and cache live under `~/.claude/snoozeline`, allowing an existing `ccline` installation to remain available for rollback.
@@ -124,6 +125,12 @@ Set `SNOOZELINE_HOME` to an absolute path to use another runtime root. Files are
 
 In `models.toml`, a Claude entry whose `display_name` matches the standard name for its `pattern` follows the actual model version. For example, `pattern = "claude-opus-5"` with `display_name = "Opus 5"` displays `Opus 5.5` for `claude-opus-5-5`, while preserving the entry's `context_limit`. Custom aliases such as `Work Opus` stay fixed, and context suffixes such as `1M` still apply.
 
+### Reasoning effort
+
+The model segment automatically appends the current session's [`effort.level`](https://code.claude.com/docs/en/statusline#available-data), for example `Fable 5.1 · max`. Every invocation uses the new stdin value without caching it or reading effort defaults from settings or environment variables. Changing effort with `/effort` or the `/model` picker is reflected when Claude Code refreshes the status line; Claude Code 2.1.280 triggers this refresh on model and effort changes, with its normal debounce. No additional polling or configuration is required.
+
+If the model or Claude Code version does not provide `effort.level`, or the value is missing, null, malformed, or unknown, SnoozeLine shows only the model name. Model aliases and context suffixes still apply.
+
 ## How usage is calculated
 
 - Native Claude Code context data takes precedence. Current context tokens include input and cache input, excluding output tokens.
@@ -149,12 +156,12 @@ After building, render a line using native fixture data and a temporary runtime 
 
 ```sh
 smoke_root="$(mktemp -d)"
-printf '%s\n' '{"model":{"id":"claude-fable-5-1","display_name":"Fable 5.1"},"workspace":{"current_dir":"/tmp/snoozeline-demo"},"context_window":{"context_window_size":1000000,"used_percentage":26,"current_usage":{"input_tokens":256800}},"rate_limits":{"five_hour":{},"seven_day":{"used_percentage":24}},"output_style":{"name":"default"}}' \
+printf '%s\n' '{"model":{"id":"claude-fable-5-1","display_name":"Fable 5.1"},"effort":{"level":"max"},"workspace":{"current_dir":"/tmp/snoozeline-demo"},"context_window":{"context_window_size":1000000,"used_percentage":26,"current_usage":{"input_tokens":256800}},"rate_limits":{"five_hour":{},"seven_day":{"used_percentage":24}},"output_style":{"name":"default"}}' \
   | SNOOZELINE_HOME="$smoke_root" \
     ./target/debug/snoozeline --theme snooze26h
 ```
 
-Expected fields: `Fable 5.1`, `snoozeline-demo`, `26% · 256.8k tokens`, `5h - · 7d 24%`, and `default`. This fixture does not require an account or a quota API request.
+Expected fields: `Fable 5.1 · max`, `snoozeline-demo`, `26% · 256.8k tokens`, `5h - · 7d 24%`, and `default`. This fixture does not require an account or a quota API request.
 
 ## Upstream and license
 

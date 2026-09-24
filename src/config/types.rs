@@ -129,6 +129,42 @@ impl<'de> Deserialize<'de> for Model {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EffortLevel {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl EffortLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Effort {
+    pub level: EffortLevel,
+}
+
+fn deserialize_effort<'de, D>(deserializer: D) -> Result<Option<Effort>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    // 思考档位是可选信息；未知值或格式错误只隐藏该字段，避免整条状态栏消失。
+    Ok(serde_json::from_value(value).ok())
+}
+
 #[derive(Deserialize, Default)]
 pub struct Workspace {
     #[serde(default)]
@@ -235,6 +271,8 @@ pub struct InputData {
     pub cwd: Option<String>,
     #[serde(default)]
     pub model: Model,
+    #[serde(default, deserialize_with = "deserialize_effort")]
+    pub effort: Option<Effort>,
     #[serde(default)]
     pub workspace: Workspace,
     #[serde(default)]

@@ -251,6 +251,7 @@ mod tests {
                 id: "claude-opus-5".to_string(),
                 display_name: "Opus 5".to_string(),
             },
+            effort: None,
             workspace: Workspace {
                 current_dir: "/tmp/project".to_string(),
             },

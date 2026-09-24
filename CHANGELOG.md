@@ -21,6 +21,9 @@ All notable SnoozeLine changes are recorded here. Entries before SnoozeLine rema
 
 ### Status line
 
+- Added live reasoning effort beside the model name using Claude Code's native `effort.level`; each refresh reflects the current session, including `/effort` and `/model` changes.
+- Kept the model-only display for absent, null, malformed, or unknown effort values, without inferring a potentially stale level from settings or environment variables.
+- Updated the configuration preview and native-data smoke fixture to show reasoning effort.
 - Made `snooze26h` the default built-in theme.
 - Kept the compact model, directory, context, quota, and Git layout.
 - Removed the “shared” label and quota reset timestamp from the visible line.

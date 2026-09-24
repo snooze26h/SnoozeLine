@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh.md)
 
-SnoozeLine 是一个用 Rust 编写、支持自定义的精简 Claude Code 状态栏。它将当前模型、工作目录、上下文占用和 5 小时／7 天额度用量集中展示在一行，并在数据可用时显示 Git 状态与输出风格。
+SnoozeLine 是一个用 Rust 编写、支持自定义的精简 Claude Code 状态栏。它将当前模型与思考程度、工作目录、上下文占用和 5 小时／7 天额度用量集中展示在一行，并在数据可用时显示 Git 状态与输出风格。
 
 基于 [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2 独立维护，默认采用 `snooze26h` 主题。
 
@@ -10,13 +10,13 @@ SnoozeLine 是一个用 Rust 编写、支持自定义的精简 Claude Code 状�
 
 ![SnoozeLine 的 snooze26h 主题：Fable 5.1、snooze26h 目录、26% 上下文、256.8k tokens、5h 额度缺失、7d 已用 24%、default 输出风格](assets/snoozeline-preview.png)
 
-上图为 `snooze26h` 主题的实际终端截图。图标需要 Nerd Font，颜色随终端配色方案变化。
+上图为加入思考程度显示之前的 `snooze26h` 主题实际终端截图。图标需要 Nerd Font，颜色随终端配色方案变化。
 
 ## 显示内容
 
 | 字段 | 示例 | 含义 |
 | --- | --- | --- |
-| 模型 | `Fable 5.1` | 当前模型名称 |
+| 模型 | `Fable 5.1 · max` | 当前模型名称，以及数据可用时的思考程度 |
 | 目录 | `snooze26h` | 当前工作文件夹 |
 | 上下文 | `26% · 256.8k tokens` | 上下文窗口占用，以及当前输入与缓存输入的 token 数 |
 | 额度 | `5h - · 7d 24%` | 对应额度窗口的**已用百分比**；`-` 表示该窗口数据不可用 |
@@ -29,6 +29,7 @@ SnoozeLine 是一个用 Rust 编写、支持自定义的精简 Claude Code 状�
 
 - **默认布局精简**：模型、目录、上下文、额度、Git 和输出风格集中在一行，省略额度重置时间。
 - **优先使用原生数据**：优先读取 Claude Code 提供的上下文和额度字段，保留兼容回退。
+- **实时思考程度**：在模型名旁显示 `low`、`medium`、`high`、`xhigh` 或 `max`，跟随当前会话的选择。
 - **终端配置界面**：通过 `--config` 预览主题，调整字段显示、顺序、颜色、图标和分隔符。
 - **十个内置主题**：`snooze26h`、`cometix`、`default`、`minimal`、`gruvbox`、`nord`，以及四个 Powerline 主题；支持 TOML 自定义主题。
 - **独立运行目录**：配置与缓存保存在 `~/.claude/snoozeline`，便于保留已有的 `ccline` 安装用于回滚。
@@ -124,6 +125,12 @@ cp -p "$backup_file" "$HOME/.claude/settings.json"
 
 在 `models.toml` 中，如果 Claude 条目的 `display_name` 与 `pattern` 对应的标准名称一致，显示名称会跟随实际模型版本。例如，`pattern = "claude-opus-5"` 配合 `display_name = "Opus 5"`，遇到 `claude-opus-5-5` 时会显示 `Opus 5.5`，同时保留该条目的 `context_limit`。`Work Opus` 这样的自定义别名保持不变，`1M` 等上下文后缀仍正常追加。
 
+### 思考程度
+
+模型字段会自动追加当前会话的 [`effort.level`](https://code.claude.com/docs/en/statusline#available-data)，例如 `Fable 5.1 · max`。每次运行都读取新的标准输入，不缓存档位，也不从设置文件或环境变量读取默认档位。通过 `/effort` 或 `/model` 选择器修改后，Claude Code 刷新状态栏时便会显示新值；Claude Code 2.1.280 会在模型或档位变化时触发刷新，遵循其正常的防抖机制，无需额外轮询或配置。
+
+如果模型或 Claude Code 版本不提供 `effort.level`，或字段缺失、为 null、格式错误、值不受支持，则只显示模型名。自定义模型别名和上下文后缀仍正常生效。
+
 ## 用量计算规则
 
 - 优先使用 Claude Code 原生上下文数据。当前上下文 token 包括输入和缓存输入，不计输出 token。
@@ -149,12 +156,12 @@ git diff --check
 
 ```sh
 smoke_root="$(mktemp -d)"
-printf '%s\n' '{"model":{"id":"claude-fable-5-1","display_name":"Fable 5.1"},"workspace":{"current_dir":"/tmp/snoozeline-demo"},"context_window":{"context_window_size":1000000,"used_percentage":26,"current_usage":{"input_tokens":256800}},"rate_limits":{"five_hour":{},"seven_day":{"used_percentage":24}},"output_style":{"name":"default"}}' \
+printf '%s\n' '{"model":{"id":"claude-fable-5-1","display_name":"Fable 5.1"},"effort":{"level":"max"},"workspace":{"current_dir":"/tmp/snoozeline-demo"},"context_window":{"context_window_size":1000000,"used_percentage":26,"current_usage":{"input_tokens":256800}},"rate_limits":{"five_hour":{},"seven_day":{"used_percentage":24}},"output_style":{"name":"default"}}' \
   | SNOOZELINE_HOME="$smoke_root" \
     ./target/debug/snoozeline --theme snooze26h
 ```
 
-输出应包含 `Fable 5.1`、`snoozeline-demo`、`26% · 256.8k tokens`、`5h - · 7d 24%` 和 `default`。这组模拟数据无需账号，也不会请求额度接口。
+输出应包含 `Fable 5.1 · max`、`snoozeline-demo`、`26% · 256.8k tokens`、`5h - · 7d 24%` 和 `default`。这组模拟数据无需账号，也不会请求额度接口。
 
 ## 上游与许可
 
