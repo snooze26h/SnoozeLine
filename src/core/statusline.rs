@@ -482,7 +482,12 @@ pub fn collect_all_segments(
                     .get("show_sha")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                let segment = GitSegment::new().with_sha(show_sha);
+                let ttl_ms = segment_config
+                    .options
+                    .get("cache_ttl_ms")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(2_000);
+                let segment = GitSegment::new().with_sha(show_sha).with_cache_ttl(ttl_ms);
                 segment.collect(input)
             }
             crate::config::SegmentId::ContextWindow => {

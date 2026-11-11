@@ -4,7 +4,7 @@
 
 SnoozeLine is a compact, customizable Claude Code status line written in Rust. See your model and reasoning effort, working directory, context usage, and 5-hour / 7-day quota usage in one line, with Git status and output style when available.
 
-Independently maintained from [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2, with `snooze26h` as the default theme.
+Independently maintained from [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2, with selected Git performance, input compatibility and preview improvements adapted from v2.0.1. The `snooze26h` theme and existing configuration format remain supported.
 
 ## Preview
 
@@ -30,13 +30,16 @@ Git information is absent from this screenshot. The final rocket icon and `defau
 - **Compact default layout:** model, directory, context, quota, Git, and output style; no quota reset timestamp.
 - **Native data first:** uses Claude Code's context and quota fields when available, with compatible fallbacks.
 - **Live reasoning effort:** shows `low`, `medium`, `high`, `xhigh`, or `max` beside the model name, following the current session's selection.
+- **Faster Git refreshes:** one query collects Git information, with a two-second cache and background refresh.
+- **Read-only preview:** `--preview` displays sample data without Git queries, quota requests or runtime writes.
+- **Input compatibility:** fractional reset timestamps are accepted, and malformed optional fields affect only their own display.
 - **Terminal configuration UI:** preview themes and adjust segment visibility, order, colors, icons, and separators with `--config`.
 - **Ten built-in themes:** `snooze26h`, `cometix`, `default`, `minimal`, `gruvbox`, `nord`, and four Powerline themes. Custom themes use TOML files.
 - **Separate runtime directory:** configuration and cache live under `~/.claude/snoozeline`, allowing an existing `ccline` installation to remain available for rollback.
 
 ## Installation
 
-The repository publicly hosts the source for version `0.1.0`; no GitHub release is published. The steps below build and install from source on macOS or Linux.
+The current source version is `0.2.0`; no GitHub release or npm package has been published for it. The steps below build and install from source on macOS or Linux. The inherited private npm templates remain pinned to `0.1.0`.
 
 Requirements: Claude Code, Git, Rust stable, and a Nerd Font selected in your terminal for the default theme's icons. The `default` theme uses ordinary emoji icons instead.
 
@@ -103,6 +106,15 @@ cp -p "$backup_file" "$HOME/.claude/settings.json"
 
 ## Configuration
 
+Preview the current layout without writing files:
+
+```sh
+"$HOME/.claude/snoozeline/snoozeline" --preview
+"$HOME/.claude/snoozeline/snoozeline" --preview --theme minimal
+```
+
+The preview uses built-in sample data, not current session usage.
+
 Open the interactive editor:
 
 ```sh
@@ -118,12 +130,19 @@ The default runtime root is `~/.claude/snoozeline`:
 ├── config.toml          # Status-line appearance and enabled segments
 ├── models.toml          # Model display-name overrides
 ├── themes/*.toml        # Built-in and custom themes
+├── git-cache/*.json     # Git status summaries per working directory
 └── .api_usage_cache.json
 ```
 
 Set `SNOOZELINE_HOME` to an absolute path to use another runtime root. Files are created as needed.
 
 In `models.toml`, a Claude entry whose `display_name` matches the standard name for its `pattern` follows the actual model version. For example, `pattern = "claude-opus-5"` with `display_name = "Opus 5"` displays `Opus 5.5` for `claude-opus-5-5`, while preserving the entry's `context_limit`. Custom aliases such as `Work Opus` stay fixed, and context suffixes such as `1M` still apply.
+
+### Git cache
+
+The default cache reuses Git status for two seconds, then serves the cached result while refreshing in the background; by default, results older than 30 seconds are not shown. The first query in a new directory waits at most 500 milliseconds, with slower work continuing in the background.
+
+Set `cache_ttl_ms = 0` under `[segments.options]` of the existing `id = "git"` entry in `config.toml` to disable caching. The supported range is `0–60000` milliseconds; larger values are capped at 60000. Custom Git index or worktree environment variables bypass the cache.
 
 ### Reasoning effort
 
@@ -135,8 +154,10 @@ If the model or Claude Code version does not provide `effort.level`, or the valu
 
 - Native Claude Code context data takes precedence. Current context tokens include input and cache input, excluding output tokens.
 - Context and quota percentages are validated and clamped to `0–100%`.
-- `5h` and `7d` show **used percentages**. When one window is unavailable, its value is `-`; when neither is available after fallback, the quota segment is hidden.
-- If native quota data is unavailable, SnoozeLine can use the compatible Claude usage endpoint and an account-scoped cache.
+- `5h` and `7d` show **used percentages**. Missing windows and windows past their reset time show `-`; the quota segment is hidden when neither window has a usable value.
+- A present native `rate_limits` field is authoritative, even when empty or malformed. The compatible Claude usage endpoint and account-scoped cache remain available only when that field is entirely absent.
+- `SNOOZELINE_NATIVE_QUOTA_ONLY=1` disables all quota API fallback for isolated account launchers. The existing personal-account launcher requires no change.
+- Input JSON is limited to 1 MiB. Invalid or oversized input produces a generic error without echoing its contents.
 - SnoozeLine's own cache does not store transcript content.
 
 ## Development

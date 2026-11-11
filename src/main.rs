@@ -2,10 +2,15 @@ use snoozeline::cli::Cli;
 use snoozeline::config::{Config, InputData};
 use snoozeline::core::{collect_all_segments, StatusLineGenerator};
 use snoozeline::ui::{MainMenu, MenuResult};
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Read};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse_args();
+
+    if let Some(directory) = cli.refresh_git {
+        snoozeline::core::segments::git_cache::refresh(&directory);
+        return Ok(());
+    }
 
     if cli.config {
         snoozeline::ui::run_configurator()?;
@@ -39,7 +44,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Load configuration
-    let mut config = Config::load().unwrap_or_else(|error| {
+    let config_result = if cli.preview {
+        Config::read()
+    } else {
+        Config::load()
+    };
+    let mut config = config_result.unwrap_or_else(|error| {
         eprintln!("snoozeline: invalid config, using defaults: {}", error);
         Config::default()
     });
@@ -47,6 +57,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Apply theme override if provided
     if let Some(theme) = cli.theme {
         config = snoozeline::ui::themes::ThemePresets::get_theme(&theme);
+    }
+
+    if cli.preview {
+        let mut preview = snoozeline::ui::components::preview::PreviewComponent::new();
+        preview.update_preview(&config);
+        println!("{}", preview.get_preview_cache());
+        return Ok(());
     }
 
     // Check if stdin has data
@@ -65,7 +82,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Read Claude Code data from stdin
     let stdin = io::stdin();
-    let input: InputData = serde_json::from_reader(stdin.lock())?;
+    const MAX_INPUT_BYTES: u64 = 1024 * 1024;
+    let mut bytes = Vec::new();
+    stdin
+        .lock()
+        .take(MAX_INPUT_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_INPUT_BYTES {
+        return Err("status line input exceeds 1 MiB".into());
+    }
+    // 输入可能含会话路径和模型信息；解析失败时不把原始字段写入错误输出。
+    let input: InputData = serde_json::from_slice(&bytes)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid status line JSON"))?;
 
     // Collect segment data
     let segments_data = collect_all_segments(&config, &input);

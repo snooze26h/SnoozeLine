@@ -1,7 +1,9 @@
 use super::{sanitize_text, Segment, SegmentData};
 use crate::config::{InputData, SegmentId};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Read;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -30,7 +32,7 @@ fn run_command_with_timeout(
     thread::spawn(move || {
         let mut output = Vec::new();
         let result = stdout
-            .take(MAX_GIT_STDOUT_BYTES)
+            .take(MAX_GIT_STDOUT_BYTES + 1)
             .read_to_end(&mut output)
             .map(|_| output);
         let _ = sender.send(result);
@@ -57,10 +59,11 @@ fn run_command_with_timeout(
         return None;
     }
     let remaining = deadline.saturating_duration_since(Instant::now());
-    receiver.recv_timeout(remaining).ok()?.ok()
+    let output = receiver.recv_timeout(remaining).ok()?.ok()?;
+    (output.len() as u64 <= MAX_GIT_STDOUT_BYTES).then_some(output)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitInfo {
     pub branch: String,
     pub status: GitStatus,
@@ -69,7 +72,7 @@ pub struct GitInfo {
     pub sha: Option<String>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum GitStatus {
     Clean,
     Dirty,
@@ -78,6 +81,7 @@ pub enum GitStatus {
 
 pub struct GitSegment {
     show_sha: bool,
+    cache_ttl_ms: u64,
 }
 
 impl Default for GitSegment {
@@ -88,7 +92,10 @@ impl Default for GitSegment {
 
 impl GitSegment {
     pub fn new() -> Self {
-        Self { show_sha: false }
+        Self {
+            show_sha: false,
+            cache_ttl_ms: 2_000,
+        }
     }
 
     pub fn with_sha(mut self, show_sha: bool) -> Self {
@@ -96,138 +103,86 @@ impl GitSegment {
         self
     }
 
+    pub fn with_cache_ttl(mut self, milliseconds: u64) -> Self {
+        self.cache_ttl_ms = milliseconds.min(60_000);
+        self
+    }
+
     fn get_git_info(&self, working_dir: &str) -> Option<GitInfo> {
-        if !self.is_git_repository(working_dir) {
+        super::git_cache::status(Path::new(working_dir), self.cache_ttl_ms)
+    }
+
+    pub(super) fn in_repository(directory: &Path) -> bool {
+        std::env::var_os("GIT_DIR").is_some()
+            || directory
+                .ancestors()
+                .any(|parent| parent.join(".git").exists())
+    }
+
+    pub(super) fn read_git_info(directory: &Path, timeout: Duration) -> Option<GitInfo> {
+        // v2 一次返回分支、状态、上下游差距和 SHA，替代原来的五到六次进程调用。
+        let output = run_command_with_timeout(
+            "git",
+            &[
+                "--no-optional-locks",
+                "status",
+                "--porcelain=v2",
+                "--branch",
+                "-z",
+            ],
+            directory.to_str()?,
+            timeout,
+        )?;
+        Self::parse_porcelain(&output)
+    }
+
+    pub(super) fn render_timeout() -> Duration {
+        GIT_COMMAND_TIMEOUT
+    }
+
+    fn parse_porcelain(output: &[u8]) -> Option<GitInfo> {
+        if !output.ends_with(&[0]) {
             return None;
         }
-
-        let branch = self
-            .get_branch(working_dir)
-            .unwrap_or_else(|| "detached".to_string());
-        let status = self.get_status(working_dir)?;
-        let (ahead, behind) = self.get_ahead_behind(working_dir);
-        let sha = if self.show_sha {
-            self.get_sha(working_dir)
-        } else {
-            None
+        let mut info = GitInfo {
+            branch: String::new(),
+            status: GitStatus::Clean,
+            ahead: 0,
+            behind: 0,
+            sha: None,
         };
-
-        Some(GitInfo {
-            branch,
-            status,
-            ahead,
-            behind,
-            sha,
-        })
-    }
-
-    fn is_git_repository(&self, working_dir: &str) -> bool {
-        Self::run_git(
-            working_dir,
-            &["--no-optional-locks", "rev-parse", "--git-dir"],
-        )
-        .is_some()
-    }
-
-    fn get_branch(&self, working_dir: &str) -> Option<String> {
-        if let Some(output) = Self::run_git(
-            working_dir,
-            &["--no-optional-locks", "branch", "--show-current"],
-        ) {
-            let branch = String::from_utf8(output).ok()?.trim().to_string();
-            if !branch.is_empty() {
-                return Some(branch);
-            }
-        }
-
-        if let Some(output) = Self::run_git(
-            working_dir,
-            &["--no-optional-locks", "symbolic-ref", "--short", "HEAD"],
-        ) {
-            let branch = String::from_utf8(output).ok()?.trim().to_string();
-            if !branch.is_empty() {
-                return Some(branch);
-            }
-        }
-
-        None
-    }
-
-    fn get_status(&self, working_dir: &str) -> Option<GitStatus> {
-        let output = Self::run_git(
-            working_dir,
-            &["--no-optional-locks", "status", "--porcelain=v1", "-z"],
-        )?;
-        Some(Self::parse_status(&output))
-    }
-
-    fn parse_status(output: &[u8]) -> GitStatus {
-        let mut dirty = false;
         let mut records = output.split(|byte| *byte == 0);
-
         while let Some(record) = records.next() {
-            if record.len() < 3 || record[2] != b' ' {
-                continue;
-            }
-
-            let status = [record[0], record[1]];
-            dirty = true;
-            if matches!(
-                status,
-                [b'D', b'D']
-                    | [b'A', b'U']
-                    | [b'U', b'D']
-                    | [b'U', b'A']
-                    | [b'D', b'U']
-                    | [b'A', b'A']
-                    | [b'U', b'U']
-            ) {
-                return GitStatus::Conflicts;
-            }
-
-            if matches!(record[0], b'R' | b'C') || matches!(record[1], b'R' | b'C') {
-                records.next();
+            if let Some(name) = record.strip_prefix(b"# branch.head ") {
+                info.branch = match name {
+                    b"(detached)" => "detached".to_string(),
+                    _ => String::from_utf8_lossy(name).into_owned(),
+                };
+            } else if let Some(oid) = record.strip_prefix(b"# branch.oid ") {
+                if oid.len() >= 7 && oid.iter().all(u8::is_ascii_hexdigit) {
+                    info.sha = Some(String::from_utf8_lossy(&oid[..7]).into_owned());
+                }
+            } else if let Some(ab) = record.strip_prefix(b"# branch.ab ") {
+                for part in String::from_utf8_lossy(ab).split_whitespace() {
+                    if let Some(ahead) = part.strip_prefix('+') {
+                        info.ahead = ahead.parse().ok()?;
+                    } else if let Some(behind) = part.strip_prefix('-') {
+                        info.behind = behind.parse().ok()?;
+                    }
+                }
+            } else if record.starts_with(b"u ") {
+                info.status = GitStatus::Conflicts;
+            } else if matches!(record.first(), Some(b'1' | b'2' | b'?')) {
+                if info.status != GitStatus::Conflicts {
+                    info.status = GitStatus::Dirty;
+                }
+                // -z 的重命名记录有第二个路径；文件名不能被当成状态或分支头解析。
+                if record.starts_with(b"2 ") && records.next()?.is_empty() {
+                    return None;
+                }
             }
         }
-
-        if dirty {
-            GitStatus::Dirty
-        } else {
-            GitStatus::Clean
-        }
-    }
-
-    fn get_ahead_behind(&self, working_dir: &str) -> (u32, u32) {
-        let ahead = self.get_commit_count(working_dir, "@{u}..HEAD");
-        let behind = self.get_commit_count(working_dir, "HEAD..@{u}");
-        (ahead, behind)
-    }
-
-    fn get_commit_count(&self, working_dir: &str, range: &str) -> u32 {
-        Self::run_git(
-            working_dir,
-            &["--no-optional-locks", "rev-list", "--count", range],
-        )
-        .and_then(|output| String::from_utf8(output).ok())
-        .and_then(|value| value.trim().parse().ok())
-        .unwrap_or(0)
-    }
-
-    fn get_sha(&self, working_dir: &str) -> Option<String> {
-        let output = Self::run_git(
-            working_dir,
-            &["--no-optional-locks", "rev-parse", "--short=7", "HEAD"],
-        )?;
-        let sha = String::from_utf8(output).ok()?.trim().to_string();
-        if sha.is_empty() {
-            None
-        } else {
-            Some(sha)
-        }
-    }
-
-    fn run_git(working_dir: &str, args: &[&str]) -> Option<Vec<u8>> {
-        run_command_with_timeout("git", args, working_dir, GIT_COMMAND_TIMEOUT)
+        (!info.branch.is_empty()).then_some(info)
     }
 }
 
@@ -241,7 +196,7 @@ impl Segment for GitSegment {
         metadata.insert("ahead".to_string(), git_info.ahead.to_string());
         metadata.insert("behind".to_string(), git_info.behind.to_string());
 
-        if let Some(ref sha) = git_info.sha {
+        if let Some(sha) = git_info.sha.as_ref().filter(|_| self.show_sha) {
             metadata.insert("sha".to_string(), sha.clone());
         }
 
@@ -261,7 +216,7 @@ impl Segment for GitSegment {
             status_parts.push(format!("↓{}", git_info.behind));
         }
 
-        if let Some(ref sha) = git_info.sha {
+        if let Some(sha) = git_info.sha.as_ref().filter(|_| self.show_sha) {
             status_parts.push(sha.clone());
         }
 
@@ -283,32 +238,44 @@ mod tests {
     use std::time::{Duration, Instant};
 
     #[test]
-    fn recognizes_every_unmerged_status() {
-        for status in ["DD", "AU", "UD", "UA", "DU", "AA", "UU"] {
-            let output = format!("{} conflict.txt\0", status);
-            assert_eq!(
-                GitSegment::parse_status(output.as_bytes()),
-                GitStatus::Conflicts,
-                "status {status}"
-            );
-        }
+    fn reads_branch_sha_and_divergence_from_one_status() {
+        let info = GitSegment::parse_porcelain(
+            b"# branch.oid abcdef0123456789\0# branch.head feature/test\0# branch.ab +2 -3\0",
+        )
+        .unwrap();
+        assert_eq!(info.branch, "feature/test");
+        assert_eq!(info.sha.as_deref(), Some("abcdef0"));
+        assert_eq!((info.ahead, info.behind), (2, 3));
+        assert_eq!(info.status, GitStatus::Clean);
     }
 
     #[test]
-    fn filenames_do_not_trigger_false_conflicts() {
-        assert_eq!(
-            GitSegment::parse_status(b" M notes-UU-AA-DD.txt\0"),
-            GitStatus::Dirty
-        );
-        assert_eq!(GitSegment::parse_status(b""), GitStatus::Clean);
+    fn filenames_do_not_change_branch_or_conflict_status() {
+        let info = GitSegment::parse_porcelain(
+            b"# branch.head main\x002 R. N... fields new.txt\0# branch.head fake\0? u UU notes\0",
+        )
+        .unwrap();
+        assert_eq!(info.branch, "main");
+        assert_eq!(info.status, GitStatus::Dirty);
     }
 
     #[test]
-    fn skips_the_second_path_in_rename_records() {
-        assert_eq!(
-            GitSegment::parse_status(b"R  new.txt\0UU old-looking-name.txt\0"),
-            GitStatus::Dirty
-        );
+    fn handles_unborn_detached_and_conflicted_repositories() {
+        let unborn =
+            GitSegment::parse_porcelain(b"# branch.oid (initial)\0# branch.head main\0").unwrap();
+        assert_eq!(unborn.sha, None);
+        assert_eq!(unborn.status, GitStatus::Clean);
+        let detached = GitSegment::parse_porcelain(
+            b"# branch.oid abcdef0123456789\0# branch.head (detached)\0u UU fields conflict\0? file\0",
+        ).unwrap();
+        assert_eq!(detached.branch, "detached");
+        assert_eq!(detached.status, GitStatus::Conflicts);
+    }
+
+    #[test]
+    fn incomplete_output_is_not_reported_as_clean() {
+        assert!(GitSegment::parse_porcelain(b"# branch.head main").is_none());
+        assert!(GitSegment::parse_porcelain(b"# branch.head main\x002 R. fields new\0").is_none());
     }
 
     #[cfg(unix)]
@@ -316,7 +283,6 @@ mod tests {
     fn local_command_timeout_is_bounded() {
         let started = Instant::now();
         let output = run_command_with_timeout("/bin/sleep", &["2"], ".", Duration::from_millis(30));
-
         assert!(output.is_none());
         assert!(started.elapsed() < Duration::from_secs(1));
     }

@@ -156,18 +156,36 @@ pub struct Effort {
     pub level: EffortLevel,
 }
 
-fn deserialize_effort<'de, D>(deserializer: D) -> Result<Option<Effort>, D::Error>
+fn deserialize_optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
 {
     let value = serde_json::Value::deserialize(deserializer)?;
-    // 思考档位是可选信息；未知值或格式错误只隐藏该字段，避免整条状态栏消失。
+    // 可选字段的格式变化只影响本字段，避免 Claude Code 升级后整条状态栏消失。
     Ok(serde_json::from_value(value).ok())
+}
+
+fn deserialize_or_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    Ok(deserialize_optional(deserializer)?.unwrap_or_default())
+}
+
+fn deserialize_native<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    // 原生字段存在但暂时为空时仍以它为准，不回读旧对话或另一套额度数据。
+    Ok(Some(deserialize_or_default(deserializer)?))
 }
 
 #[derive(Deserialize, Default)]
 pub struct Workspace {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_or_default")]
     pub current_dir: String,
 }
 
@@ -251,41 +269,41 @@ impl ContextWindow {
 
 #[derive(Debug, Deserialize)]
 pub struct RateLimitWindow {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional")]
     pub used_percentage: Option<f64>,
-    #[serde(default)]
-    pub resets_at: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_optional")]
+    pub resets_at: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct RateLimits {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional")]
     pub five_hour: Option<RateLimitWindow>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional")]
     pub seven_day: Option<RateLimitWindow>,
 }
 
 #[derive(Deserialize)]
 pub struct InputData {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional")]
     pub cwd: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_or_default")]
     pub model: Model,
-    #[serde(default, deserialize_with = "deserialize_effort")]
+    #[serde(default, deserialize_with = "deserialize_optional")]
     pub effort: Option<Effort>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_or_default")]
     pub workspace: Workspace,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_or_default")]
     pub transcript_path: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional")]
     pub cost: Option<Cost>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional")]
     pub output_style: Option<OutputStyle>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_native")]
     pub context_window: Option<ContextWindow>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_native")]
     pub rate_limits: Option<RateLimits>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional")]
     pub version: Option<String>,
 }
 

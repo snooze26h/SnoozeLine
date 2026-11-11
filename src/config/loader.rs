@@ -117,7 +117,11 @@ impl Config {
     pub fn load() -> Result<Config, Box<dyn std::error::Error>> {
         // Ensure themes directory exists and has built-in themes
         ConfigLoader::ensure_themes_exist();
+        Self::read()
+    }
 
+    /// Read configuration without creating or changing runtime files.
+    pub fn read() -> Result<Config, Box<dyn std::error::Error>> {
         let config_path = Self::get_config_path();
 
         if !config_path.exists() {

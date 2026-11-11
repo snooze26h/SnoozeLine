@@ -127,19 +127,18 @@ impl PreviewComponent {
                     },
                 },
                 SegmentId::ContextWindow => SegmentData {
-                    primary: "78.2%".to_string(),
-                    secondary: "· 156.4k".to_string(),
+                    primary: "26% · 256.8k tokens".to_string(),
+                    secondary: String::new(),
                     metadata: {
                         let mut map = HashMap::new();
-                        map.insert("total_tokens".to_string(), "156400".to_string());
-                        map.insert("percentage".to_string(), "78.2".to_string());
-                        map.insert("session_tokens".to_string(), "48200".to_string());
+                        map.insert("tokens".to_string(), "256800".to_string());
+                        map.insert("percentage".to_string(), "26".to_string());
                         map
                     },
                 },
                 SegmentId::Usage => SegmentData {
-                    primary: "24%".to_string(),
-                    secondary: "· 10-7-2".to_string(),
+                    primary: "5h 8%".to_string(),
+                    secondary: "· 7d 24%".to_string(),
                     metadata: HashMap::new(),
                 },
                 SegmentId::Cost => SegmentData {

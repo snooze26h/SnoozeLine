@@ -2,6 +2,7 @@ pub mod context_window;
 pub mod cost;
 pub mod directory;
 pub mod git;
+pub mod git_cache;
 pub mod model;
 pub mod output_style;
 pub mod session;

@@ -10,7 +10,9 @@ Substantial portions of SnoozeLine are derived from CCometixLine:
 - Release: `v1.1.2`
 - Commit: `a73b166557662b2e79b83ea005fb297003748fb0`
 
-The upstream package metadata and README files declare `MIT`. The referenced `LICENSE` file is absent from the upstream release and preserved history, so this repository does not reproduce or infer an upstream copyright notice.
+Selected improvements also adapt CCometixLine `v2.0.1` at commit `56849931745e05d2d4e506af2bedbc8d1f0616d4`, by Haleclipse and contributors. The adapted source files and scope are listed in [UPSTREAM.md](UPSTREAM.md).
+
+The upstream package metadata and README files declare `MIT`. The referenced `LICENSE` text is absent from the imported v1.1.2 snapshot and its preserved history. This update does not establish or infer a new license or copyright notice.
 
 SnoozeLine retains the upstream Git authorship and documents its downstream modifications separately. See [UPSTREAM.md](UPSTREAM.md) for the full provenance record.
 

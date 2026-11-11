@@ -104,13 +104,24 @@ impl UsageSegment {
     }
 
     fn render_native(rate_limits: &RateLimits) -> Option<SegmentData> {
+        Self::render_native_at(rate_limits, Utc::now().timestamp_millis() as f64 / 1000.0)
+    }
+
+    fn render_native_at(rate_limits: &RateLimits, now: f64) -> Option<SegmentData> {
+        let current = |window: &crate::config::RateLimitWindow| {
+            !window
+                .resets_at
+                .is_some_and(|reset| reset.is_finite() && reset <= now)
+        };
         let five_hour = rate_limits
             .five_hour
             .as_ref()
+            .filter(|window| current(window))
             .and_then(|window| window.used_percentage);
         let seven_day = rate_limits
             .seven_day
             .as_ref()
+            .filter(|window| current(window))
             .and_then(|window| window.used_percentage);
         Self::render_usage(five_hour, seven_day, "native")
     }
@@ -286,9 +297,13 @@ impl UsageSegment {
 impl Segment for UsageSegment {
     fn collect(&self, input: &InputData) -> Option<SegmentData> {
         if let Some(rate_limits) = input.rate_limits.as_ref() {
-            if let Some(data) = Self::render_native(rate_limits) {
-                return Some(data);
-            }
+            return Self::render_native(rate_limits);
+        }
+        // 个人账号入口使用这个开关，确保原生额度缺失时也不会访问兼容额度接口。
+        if std::env::var_os("SNOOZELINE_NATIVE_QUOTA_ONLY").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+        {
+            return None;
         }
         self.collect_api_fallback(input)
     }
@@ -327,6 +342,17 @@ mod tests {
         assert_eq!(UsageSegment::format_percentage(Some(123.0)), "100%");
         assert_eq!(UsageSegment::format_percentage(Some(-4.0)), "0%");
         assert_eq!(UsageSegment::format_percentage(None), "-");
+    }
+
+    #[test]
+    fn expired_native_windows_do_not_keep_showing_old_usage() {
+        let limits: RateLimits = serde_json::from_str(
+            r#"{"five_hour":{"used_percentage":99,"resets_at":1000.25},"seven_day":{"used_percentage":24,"resets_at":2000}}"#,
+        ).unwrap();
+        let data = UsageSegment::render_native_at(&limits, 1001.0).unwrap();
+        assert_eq!(data.primary, "5h -");
+        assert_eq!(data.secondary, "· 7d 24%");
+        assert!(UsageSegment::render_native_at(&limits, 2000.0).is_none());
     }
 
     #[test]

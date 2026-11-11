@@ -4,7 +4,7 @@
 
 SnoozeLine 是一个用 Rust 编写、支持自定义的精简 Claude Code 状态栏。它将当前模型与思考程度、工作目录、上下文占用和 5 小时／7 天额度用量集中展示在一行，并在数据可用时显示 Git 状态与输出风格。
 
-基于 [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2 独立维护，默认采用 `snooze26h` 主题。
+基于 [CCometixLine](https://github.com/Haleclipse/CCometixLine) v1.1.2 独立维护，并选择性吸收 v2.0.1 的 Git 性能、输入兼容与预览改进；默认采用 `snooze26h` 主题，继续兼容现有配置。
 
 ## 效果预览
 
@@ -30,13 +30,16 @@ SnoozeLine 是一个用 Rust 编写、支持自定义的精简 Claude Code 状�
 - **默认布局精简**：模型、目录、上下文、额度、Git 和输出风格集中在一行，省略额度重置时间。
 - **优先使用原生数据**：优先读取 Claude Code 提供的上下文和额度字段，保留兼容回退。
 - **实时思考程度**：在模型名旁显示 `low`、`medium`、`high`、`xhigh` 或 `max`，跟随当前会话的选择。
+- **Git 刷新加速**：一次查询获取 Git 信息，默认缓存 2 秒，过期后在后台刷新。
+- **只读预览**：`--preview` 使用模拟数据展示当前布局，不查询 Git、额度接口或创建运行文件。
+- **输入兼容**：小数格式的额度重置时间可正常解析；可选字段格式变化只影响对应字段。
 - **终端配置界面**：通过 `--config` 预览主题，调整字段显示、顺序、颜色、图标和分隔符。
 - **十个内置主题**：`snooze26h`、`cometix`、`default`、`minimal`、`gruvbox`、`nord`，以及四个 Powerline 主题；支持 TOML 自定义主题。
 - **独立运行目录**：配置与缓存保存在 `~/.claude/snoozeline`，便于保留已有的 `ccline` 安装用于回滚。
 
 ## 安装
 
-仓库已公开托管 `0.1.0` 版本的源码，尚无 GitHub Release。下面提供 macOS / Linux 的源码构建与安装方式。
+当前源码版本为 `0.2.0`，尚未发布此版本的 GitHub Release 或 npm 包。下面提供 macOS / Linux 的源码构建与安装方式；继承的私有 npm 模板仍固定在 `0.1.0`。
 
 需要 Claude Code、Git 和 Rust stable。要显示默认主题的图标，请在终端选择 Nerd Font；也可以使用采用普通 emoji 图标的 `default` 主题。
 
@@ -103,6 +106,15 @@ cp -p "$backup_file" "$HOME/.claude/settings.json"
 
 ## 配置
 
+先查看当前布局的只读预览：
+
+```sh
+"$HOME/.claude/snoozeline/snoozeline" --preview
+"$HOME/.claude/snoozeline/snoozeline" --preview --theme minimal
+```
+
+预览使用内置模拟数据，不代表当前会话的实际用量。
+
 打开交互式编辑器：
 
 ```sh
@@ -118,12 +130,19 @@ cp -p "$backup_file" "$HOME/.claude/settings.json"
 ├── config.toml          # 状态栏外观与启用的字段
 ├── models.toml          # 模型显示名称覆盖
 ├── themes/*.toml        # 内置与自定义主题
+├── git-cache/*.json     # 按工作目录隔离的 Git 状态摘要
 └── .api_usage_cache.json
 ```
 
 可以将 `SNOOZELINE_HOME` 设为绝对路径，指定其他运行根目录。文件按需创建。
 
 在 `models.toml` 中，如果 Claude 条目的 `display_name` 与 `pattern` 对应的标准名称一致，显示名称会跟随实际模型版本。例如，`pattern = "claude-opus-5"` 配合 `display_name = "Opus 5"`，遇到 `claude-opus-5-5` 时会显示 `Opus 5.5`，同时保留该条目的 `context_limit`。`Work Opus` 这样的自定义别名保持不变，`1M` 等上下文后缀仍正常追加。
+
+### Git 缓存
+
+默认两秒内复用同一工作目录的 Git 状态，过期后先显示缓存并在后台刷新；默认最多显示 30 秒前的状态。新目录首次查询最多等待 500 毫秒，较慢的查询交给后台继续完成。
+
+可在 `config.toml` 中现有 `id = "git"` 条目的 `[segments.options]` 下设置 `cache_ttl_ms = 0` 禁用缓存；该选项范围为 `0–60000` 毫秒，较大的值按 60000 处理。自定义 Git 索引或工作树环境变量会自动绕过缓存。
 
 ### 思考程度
 
@@ -135,8 +154,10 @@ cp -p "$backup_file" "$HOME/.claude/settings.json"
 
 - 优先使用 Claude Code 原生上下文数据。当前上下文 token 包括输入和缓存输入，不计输出 token。
 - 上下文和额度百分比会校验并限制在 `0–100%`。
-- `5h`、`7d` 均显示**已用百分比**。一个窗口数据缺失时显示 `-`；原生与回退数据都无法提供任何窗口数值时，隐藏额度字段。
-- 原生额度数据不可用时，可以使用兼容的 Claude 用量接口及账户隔离缓存作为回退。
+- `5h`、`7d` 均显示**已用百分比**。一个窗口缺失或已过重置时间时显示 `-`；两个窗口都没有可用数据时隐藏额度字段。
+- 只要输入包含原生 `rate_limits` 字段，就以它为准，即使为空或格式异常也不回退。输入完全没有该字段时，仍可使用兼容的 Claude 用量接口及账户隔离缓存。
+- `SNOOZELINE_NATIVE_QUOTA_ONLY=1` 可关闭全部额度接口回退，供独立账号入口使用。现有个人账号启动器无需修改。
+- 输入 JSON 上限为 1 MiB；结构损坏或超长时只报告通用错误，不回显输入。
 - SnoozeLine 自身的缓存不保存对话正文。
 
 ## 开发
